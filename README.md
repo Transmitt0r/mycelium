@@ -110,16 +110,16 @@ off or move where its local index file lives:
 
 ## Skills
 
-The plugin also bundles two example skills (`skills/`) that OpenClaw picks up automatically once
-it's installed:
+The plugin bundles one skill (`skills/paperless`) that OpenClaw picks up automatically once
+it's installed: on-demand document search and retrieval ("find my car insurance policy", "what's
+the policy number on that Allianz document"). Retrieval is the one workflow that looks the same for
+everyone, which is why it ships as part of the plugin.
 
-- **paperless-search** — on-demand document search ("find my car insurance policy")
-- **paperless-ingest** — inbox triage: read OCR, assign correspondent/type/tags/title/date, remove
-  the inbox tag. Can run on a schedule (e.g. heartbeat) or on demand.
-
-These are starting points, not fixed behavior — the title convention, legal-suffix list, safety
-rules, etc. are all easy to adapt; copy `skills/paperless-ingest/SKILL.md` into your own workspace
-and edit it if the defaults don't fit.
+Inbox triage/ingest (assigning correspondent, type, tags, title, date to new documents) deliberately
+isn't included — everyone's filing conventions, naming schemes, and safety rules around auto-editing
+their archive differ enough that a one-size-fits-all ingest skill would just be wrong for most
+people. Write your own against `paperless_search_documents`/`paperless_update_document` (and the
+rest of the tools above) in your own workspace instead, tuned to how you actually file things.
 
 ## Development
 
