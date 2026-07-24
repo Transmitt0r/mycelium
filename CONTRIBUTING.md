@@ -5,9 +5,16 @@
 ```bash
 pnpm install
 pnpm run build
+pnpm run typecheck
 pnpm run lint
 pnpm run test
 ```
+
+`build`'s `tsc` excludes `*.test.ts` (test files shouldn't end up in the published `dist/`), so it
+never type-checks tests. `typecheck` runs the same compiler over the whole program, tests included,
+via `tsconfig.test.json` (extends the base config, `noEmit`, no exclusion). `vitest run` itself
+doesn't type-check either -- it transpiles with esbuild, which strips types without checking them --
+so `typecheck` is the only step that would catch a type error confined to a test file.
 
 Node version is pinned in `.nvmrc`.
 

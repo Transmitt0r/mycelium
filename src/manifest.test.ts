@@ -29,6 +29,11 @@ describe("openclaw.plugin.json contracts.tools", () => {
       },
     } as unknown as OpenClawPluginApi;
 
+    // OpenClawPluginDefinition types `register` as optional, but this
+    // plugin's own entry always provides one -- a missing register() here
+    // would itself be a real bug worth failing loudly on, not something to
+    // silently no-op past with a bare `?.`.
+    if (!entry.register) throw new Error("test setup: entry.register is not defined");
     entry.register(api);
 
     // Length checks first: a Set-only comparison can't see a duplicate

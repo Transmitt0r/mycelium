@@ -36,6 +36,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Every fixture below sets up exactly one result and expects it back --
+// throwing here fails loudly if a fixture ever stops producing a result,
+// instead of every assertion after it failing on undefined.
+function firstResult(result: { details: unknown }): Record<string, unknown> {
+  const item = (result.details as { results: Record<string, unknown>[] }).results[0];
+  if (!item) throw new Error("test setup: expected at least one result");
+  return item;
+}
+
 // Matches a taxonomy list GET (no id__in) -- as opposed to the id__in batch
 // lookup fetchNameMap uses to resolve a tag's parent/children ids to names.
 const listRoute = (endpoint: string, items: Record<string, unknown>[]): Route => ({
@@ -67,7 +76,7 @@ describe("paperless_list_taxonomy", () => {
     ]);
     const tool = createListTaxonomyTool(handle);
     const result = await tool.execute("call-1", { kind: "tag" });
-    const tag = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const tag = firstResult(result);
     expect(tag.parent_name).toBe("Categories");
     expect(tag.children_names).toEqual(["Flights"]);
   });
@@ -78,7 +87,7 @@ describe("paperless_list_taxonomy", () => {
     ]);
     const tool = createListTaxonomyTool(handle);
     const result = await tool.execute("call-1", { kind: "correspondent" });
-    const item = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const item = firstResult(result);
     expect(item.name).toBe("Amazon");
     expect(item.owner).toBeUndefined();
     expect(item.permissions).toBeUndefined();
@@ -89,7 +98,7 @@ describe("paperless_list_taxonomy", () => {
     const { handle } = setup([listRoute("/api/document_types/", [{ id: 1, name: "Invoice" }])]);
     const tool = createListTaxonomyTool(handle);
     const result = await tool.execute("call-1", { kind: "document_type" });
-    const item = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const item = firstResult(result);
     expect(item.name).toBe("Invoice");
   });
 

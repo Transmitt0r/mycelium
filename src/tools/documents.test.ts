@@ -31,6 +31,17 @@ function fakeSemanticHandle(matches: SemanticMatch[]): Promise<SemanticSearchHan
   });
 }
 
+// Every single-document test fixture sets up exactly one result and expects
+// it back -- throwing here (rather than a bare `results[0]!`) fails loudly
+// if a test's own route fixture ever stops producing a result, instead of
+// every assertion after it failing with a confusing "Cannot read property
+// of undefined".
+function firstResult(result: { details: unknown }): Record<string, unknown> {
+  const doc = (result.details as { results: Record<string, unknown>[] }).results[0];
+  if (!doc) throw new Error("test setup: expected at least one result");
+  return doc;
+}
+
 const BASE_URL = "https://paperless.example.com";
 
 type Route = {
@@ -119,7 +130,7 @@ describe("paperless_search_documents content policy", () => {
     ]);
     const tool = createSearchDocumentsTool(handle, noSemanticHandle());
     const result = await tool.execute("call-1", {});
-    const doc = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const doc = firstResult(result);
     expect(doc.content).toBeUndefined();
     expect(doc.content_snippet).toBeUndefined();
     expect(doc.title).toBe("Doc 1");
@@ -136,7 +147,7 @@ describe("paperless_search_documents content policy", () => {
     ]);
     const tool = createSearchDocumentsTool(handle, noSemanticHandle());
     const result = await tool.execute("call-1", { fields: ["id", "title", "content"] });
-    const doc = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const doc = firstResult(result);
     expect(doc.content).toBeUndefined();
   });
 
@@ -146,7 +157,7 @@ describe("paperless_search_documents content policy", () => {
     ]);
     const tool = createSearchDocumentsTool(handle, noSemanticHandle());
     const result = await tool.execute("call-1", { search: MARKER });
-    const doc = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const doc = firstResult(result);
     expect(doc.content).toBeUndefined();
     expect(typeof doc.content_snippet).toBe("string");
     expect(doc.content_snippet as string).toContain(MARKER);
@@ -159,7 +170,7 @@ describe("paperless_search_documents content policy", () => {
     ]);
     const tool = createSearchDocumentsTool(handle, noSemanticHandle());
     const result = await tool.execute("call-1", { query: `content:"${MARKER}" AND type:Invoice` });
-    const doc = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const doc = firstResult(result);
     expect(doc.content_snippet as string).toContain(MARKER);
   });
 
@@ -169,7 +180,7 @@ describe("paperless_search_documents content policy", () => {
     ]);
     const tool = createSearchDocumentsTool(handle, noSemanticHandle());
     const result = await tool.execute("call-1", { search: "totally-absent-term" });
-    const doc = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const doc = firstResult(result);
     expect(doc.content).toBeUndefined();
     const snippet = doc.content_snippet as string;
     expect(snippet.startsWith(FILLER_A.slice(0, 20))).toBe(true);
@@ -184,7 +195,7 @@ describe("paperless_search_documents content policy", () => {
     // "INVOI*42" -- the literal wildcard would never match OCR text, but the
     // "INVOI" fragment (before the `*`) is a real substring of MARKER.
     const result = await tool.execute("call-1", { query: "INVOI*42" });
-    const doc = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const doc = firstResult(result);
     const snippet = doc.content_snippet as string;
     expect(snippet).toContain(MARKER);
   });
@@ -199,7 +210,7 @@ describe("paperless_search_documents content policy", () => {
     const handle = setup([documentsListRoute([{ id: 1, title: "Doc 1", content, tags: [] }])]);
     const tool = createSearchDocumentsTool(handle, noSemanticHandle());
     const result = await tool.execute("call-1", { search: MARKER });
-    const doc = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const doc = firstResult(result);
     const snippet = doc.content_snippet as string;
     expect(snippet).toContain(emoji);
     expect(snippet).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
@@ -213,7 +224,7 @@ describe("paperless_search_documents content policy", () => {
     const handle = setup([documentsListRoute([{ id: 1, title: "Doc 1", content, tags: [] }])]);
     const tool = createSearchDocumentsTool(handle, noSemanticHandle());
     const result = await tool.execute("call-1", { search: "absent-term" });
-    const doc = (result.details as { results: Record<string, unknown>[] }).results[0];
+    const doc = firstResult(result);
     const snippet = doc.content_snippet as string;
     expect(snippet).toContain(emoji);
   });

@@ -14,7 +14,8 @@
 
 ## Working in this repo
 
-- Run `pnpm run build`, `pnpm run lint`, `pnpm run test` before committing.
+- Run `pnpm run build`, `pnpm run typecheck`, `pnpm run lint`, `pnpm run test` before committing.
+  `build`'s `tsc` excludes test files from the compile; `typecheck` is the one that type-checks them.
 - Commit messages **must** follow Conventional Commits — semantic-release derives the npm version
   and GitHub release from them on every push to `main`. A non-conventional message just won't ship.
 - Never hand-edit `version` in `package.json` — semantic-release owns it.
