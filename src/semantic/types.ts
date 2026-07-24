@@ -6,11 +6,18 @@
 // The agent-facing contract paperless_search_documents merges into its
 // lexical results. Intentionally the same shape the seam in
 // src/tools/documents.ts already declared -- this module is what makes it
-// real instead of a stub.
+// real instead of a stub. startLine/endLine (added after the fact -- the
+// original seam only had documentId/snippet/score) are the matched chunk's
+// span so the caller can chain straight into paperless_read_document
+// instead of only getting the snippet text with no way to locate it in the
+// document. Same CRLF/CR-normalized line numbering as ChunkRecord/ChunkHit
+// below.
 export type SemanticMatch = {
   documentId: number;
   snippet: string;
   score: number;
+  startLine: number;
+  endLine: number;
 };
 
 // One markdown-chunked span of a document's OCR content, with line numbers

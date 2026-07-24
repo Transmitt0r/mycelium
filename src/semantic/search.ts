@@ -49,16 +49,30 @@ async function runQuery(
   const queryEmbedding = await deps.embeddingProvider.embedQuery(searchTerm);
   const hits = deps.store.knnSearch(queryEmbedding, Math.max(limit, 1) * CANDIDATE_OVERSAMPLE);
 
-  const bestPerDocument = new Map<number, { snippet: string; score: number }>();
+  const bestPerDocument = new Map<
+    number,
+    { snippet: string; score: number; startLine: number; endLine: number }
+  >();
   for (const hit of hits) {
     const existing = bestPerDocument.get(hit.documentId);
     if (!existing || hit.score > existing.score) {
-      bestPerDocument.set(hit.documentId, { snippet: hit.text, score: hit.score });
+      bestPerDocument.set(hit.documentId, {
+        snippet: hit.text,
+        score: hit.score,
+        startLine: hit.startLine,
+        endLine: hit.endLine,
+      });
     }
   }
 
   return [...bestPerDocument.entries()]
-    .map(([documentId, { snippet, score }]) => ({ documentId, snippet, score }))
+    .map(([documentId, { snippet, score, startLine, endLine }]) => ({
+      documentId,
+      snippet,
+      score,
+      startLine,
+      endLine,
+    }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }

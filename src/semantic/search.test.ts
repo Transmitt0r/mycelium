@@ -87,8 +87,8 @@ describe("searchSemantic", () => {
       10,
     );
     expect(result).toEqual([
-      { documentId: 1, snippet: "stronger chunk", score: 0.9 },
-      { documentId: 2, snippet: "doc 2 chunk", score: 0.7 },
+      { documentId: 1, snippet: "stronger chunk", score: 0.9, startLine: 6, endLine: 10 },
+      { documentId: 2, snippet: "doc 2 chunk", score: 0.7, startLine: 1, endLine: 5 },
     ]);
   });
 

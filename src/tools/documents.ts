@@ -332,6 +332,30 @@ const RRF_K = 60;
 // semantic-only hit can displace a weak lexical-only tail entry within the
 // same page budget, without the tool's response growing past what the
 // caller asked for.
+// Attaches a semantic match's snippet and the line span it came from to a
+// document. Named fields (not bare `start_line`/`end_line`) to keep this
+// unambiguous next to `content_snippet` and distinct from
+// paperless_read_document's own start_line/end_line params -- these
+// describe where *this snippet* came from, not a range the caller chose.
+// Lets the caller chain straight into paperless_read_document(id,
+// start_line, end_line) instead of only getting matched text with no way
+// to locate it in the document.
+function withSemanticSnippet<T extends Record<string, unknown>>(
+  doc: T,
+  match: SemanticMatch,
+): T & {
+  content_snippet: string;
+  content_snippet_start_line: number;
+  content_snippet_end_line: number;
+} {
+  return {
+    ...doc,
+    content_snippet: match.snippet,
+    content_snippet_start_line: match.startLine,
+    content_snippet_end_line: match.endLine,
+  };
+}
+
 async function mergeSemanticMatches(
   client: PaperlessClient,
   baseUrl: string,
@@ -379,13 +403,13 @@ async function mergeSemanticMatches(
         includeContent: false,
         snippetTerm: undefined,
       });
-      return match ? { ...shaped, content_snippet: match.snippet } : shaped;
+      return match ? withSemanticSnippet(shaped, match) : shaped;
     });
   }
 
   const upgradedLexical = documents.map((doc) => {
     const match = typeof doc.id === "number" ? semanticById.get(doc.id) : undefined;
-    return match ? { ...doc, content_snippet: match.snippet } : doc;
+    return match ? withSemanticSnippet(doc, match) : doc;
   });
 
   const rrfScore = (id: number | undefined): number => {
@@ -493,11 +517,13 @@ export function createSearchDocumentsTool(
     description:
       "Search or filter documents in paperless-ngx. OCR `content` is never included in results -- " +
       "when a `search`/`query` term was given, each result gets a short `content_snippet` around " +
-      "the match instead, enough to judge relevance without the full text. To read a specific " +
-      "document's content, use paperless_read_document (a bounded read, from the start or a " +
-      "specific range) or paperless_search_document_content (pattern search within one document). " +
-      "correspondent/document_type/tag ids are automatically resolved to " +
-      "correspondent_name/document_type_name/tag_names alongside the ids.",
+      "the match instead, enough to judge relevance without the full text. When a result's " +
+      "`content_snippet` also carries `content_snippet_start_line`/`content_snippet_end_line`, use " +
+      "those with paperless_read_document to jump straight to the matched section instead of " +
+      "reading from the start. To read a specific document's content, use paperless_read_document " +
+      "(a bounded read, from the start or a specific range) or paperless_search_document_content " +
+      "(pattern search within one document). correspondent/document_type/tag ids are automatically " +
+      "resolved to correspondent_name/document_type_name/tag_names alongside the ids.",
     parameters: searchDocumentsParams,
     execute: async (_toolCallId, params: Static<typeof searchDocumentsParams>) => {
       const { client, baseUrl } = await handlePromise;

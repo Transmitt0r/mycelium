@@ -236,13 +236,24 @@ describe("paperless_search_documents semantic hybrid merge", () => {
       documentsListRoute([{ id: 1, title: "Doc 1", content: SAMPLE_CONTENT, tags: [] }]),
     ]);
     const semantic = fakeSemanticHandle([
-      { documentId: 1, snippet: "a more targeted semantic excerpt", score: 0.9 },
+      {
+        documentId: 1,
+        snippet: "a more targeted semantic excerpt",
+        score: 0.9,
+        startLine: 12,
+        endLine: 20,
+      },
     ]);
     const tool = createSearchDocumentsTool(handle, semantic);
     const result = await tool.execute("call-1", { search: MARKER });
     const results = (result.details as { results: Record<string, unknown>[] }).results;
     expect(results).toHaveLength(1);
     expect(results[0]?.content_snippet).toBe("a more targeted semantic excerpt");
+    // The matched chunk's line span rides along so a caller can jump
+    // straight to it with paperless_read_document instead of reading from
+    // the start of a possibly-long document.
+    expect(results[0]?.content_snippet_start_line).toBe(12);
+    expect(results[0]?.content_snippet_end_line).toBe(20);
   });
 
   it("fetches, shapes, and folds in a semantic-only document not in the lexical page", async () => {
@@ -264,7 +275,7 @@ describe("paperless_search_documents semantic hybrid merge", () => {
     };
     const handle = setup([route]);
     const semantic = fakeSemanticHandle([
-      { documentId: 2, snippet: "semantic-only hit", score: 0.95 },
+      { documentId: 2, snippet: "semantic-only hit", score: 0.95, startLine: 3, endLine: 9 },
     ]);
     const tool = createSearchDocumentsTool(handle, semantic);
     const result = await tool.execute("call-1", { search: MARKER });
@@ -273,6 +284,8 @@ describe("paperless_search_documents semantic hybrid merge", () => {
     expect(results.map((doc) => doc.id)).toEqual(expect.arrayContaining([1, 2]));
     const semanticOnlyDoc = results.find((doc) => doc.id === 2);
     expect(semanticOnlyDoc?.content_snippet).toBe("semantic-only hit");
+    expect(semanticOnlyDoc?.content_snippet_start_line).toBe(3);
+    expect(semanticOnlyDoc?.content_snippet_end_line).toBe(9);
     // Shaped the same way lexical results are -- gets a `url` into the web UI.
     expect(semanticOnlyDoc?.url).toBe(`${BASE_URL}/documents/2/details`);
   });
@@ -305,7 +318,7 @@ describe("paperless_search_documents semantic hybrid merge", () => {
     // so it's the one that should get displaced once the merged list is
     // capped back down to page_size.
     const semantic = fakeSemanticHandle([
-      { documentId: 99, snippet: "top semantic match", score: 0.99 },
+      { documentId: 99, snippet: "top semantic match", score: 0.99, startLine: 1, endLine: 8 },
     ]);
     const tool = createSearchDocumentsTool(handle, semantic);
     const result = await tool.execute("call-1", { search: MARKER, page_size: 5 });
