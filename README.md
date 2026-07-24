@@ -53,7 +53,7 @@ openclaw config set plugins.entries.paperless-ngx.config.apiToken \
 
 | Tool | Description |
 | --- | --- |
-| `paperless_search_documents` | Search/filter documents (full-text search, correspondent, document type, tag, date range, ordering, pagination), or batch-fetch by `ids`. Never returns OCR content — a `content_snippet` around the match is included instead when `search`/`query` is set. Also includes a link to each document in the paperless-ngx web UI and correspondent/document type/tag names resolved alongside their ids. The `search` param is the integration point for hybrid lexical+semantic search (see below) — currently lexical-only. |
+| `paperless_search_documents` | Search/filter documents (full-text search, correspondent, document type, tag, date range, ordering, pagination), or batch-fetch by `ids`. Never returns OCR content — a `content_snippet` around the match is included instead when `search`/`query` is set. Also includes a link to each document in the paperless-ngx web UI and correspondent/document type/tag names resolved alongside their ids. `search` is hybrid lexical+semantic under the hood (see below) — no separate param or tool for it. |
 | `paperless_get_document` | Fetch a single document's metadata by id. Same automatic name resolution as `paperless_search_documents`. Never returns raw content; pass `excerpt_search` for a short `content_snippet`-style excerpt around one term. |
 | `paperless_read_document` | Read a document's OCR content, bounded to a line range (capped at 500 lines/call, defaults to the first 200 if no range is given). Page through a longer document by following up with `start_line` past what you've already read (`total_lines` in the response tells you when there's more). |
 | `paperless_search_document_content` | Search one document's OCR content for a pattern (like `grep -n -C`) without reading the whole document into context — returns matching lines plus surrounding context. |
@@ -63,13 +63,50 @@ openclaw config set plugins.entries.paperless-ngx.config.apiToken \
 
 There's deliberately no delete tool in this first pass.
 
-### Semantic search (in progress)
+### Semantic search
 
-A semantic/embeddings-based search backend for this document corpus is being built separately. Once
-it exists, `paperless_search_documents`'s `search` param becomes hybrid (lexical + semantic)
-internally — no new tool, no new param. The tool's contract with the model doesn't change; only the
-ranking behind it improves. See `fetchSemanticMatches`/`mergeSemanticMatches` in
-`src/tools/documents.ts` for the integration seam (currently a no-op stub).
+`paperless_search_documents` understands meaning, not just keywords — searching "car insurance"
+also finds a document whose text only ever says "Kfz-Haftpflichtversicherung". This happens
+automatically inside the existing `search` param; there's no separate tool or mode to choose.
+
+This requires an API key and sends data off your machine: document OCR content and your search
+terms are sent to Google's Gemini API to be embedded. **Without a `semanticSearch.embedding.apiKey`
+configured, this stays off automatically** — `paperless_search_documents` silently falls back to
+today's keyword-only (lexical) behavior, the same way it fails open if Gemini is unreachable, rate
+limits you, or errors for any other reason.
+
+To turn it on, set an API key ([Google AI Studio](https://aistudio.google.com/apikey)):
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "paperless-ngx": {
+        "config": {
+          "semanticSearch": {
+            "embedding": {
+              "apiKey": "your-gemini-api-key"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+`semanticSearch.embedding.apiKey` accepts a [SecretRef](https://docs.openclaw.ai/cli/config) too,
+same as `apiToken` above. Once a key is set, the index builds up in the background; to turn it back
+off or move where its local index file lives:
+
+```json
+{
+  "semanticSearch": {
+    "enabled": false,
+    "indexPath": "/custom/path/semantic-index.db"
+  }
+}
+```
 
 ## Skills
 

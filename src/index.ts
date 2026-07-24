@@ -8,6 +8,7 @@ import { isSecretRef } from "openclaw/plugin-sdk/secret-input";
 import { resolveSecretRefValues } from "openclaw/plugin-sdk/secret-ref-runtime";
 import { Type } from "typebox";
 import { createPaperlessClient, type PaperlessClientHandle } from "./client.js";
+import { createSemanticSearchHandle } from "./semantic/handle.js";
 import {
   createGetDocumentTool,
   createReadDocumentTool,
@@ -32,6 +33,55 @@ const configSchema = Type.Object({
   apiToken: Type.Union([Type.String(), Type.Object({}, { additionalProperties: true })], {
     description: "paperless-ngx API token, as a plain string or a SecretRef object",
   }),
+  // No new tool/param exposes this -- it only tunes the plugin-owned
+  // semantic index paperless_search_documents already folds in silently
+  // (see src/semantic/ and the seam comment in src/tools/documents.ts).
+  semanticSearch: Type.Optional(
+    Type.Object({
+      enabled: Type.Optional(
+        Type.Boolean({
+          description:
+            "Enable the local semantic search index that hybridizes paperless_search_documents' " +
+            "`search` results. Defaults to true; the plugin still fails open to lexical-only search " +
+            "if the runtime/environment can't support it (e.g. Node <22.5, no node:sqlite) even when " +
+            "this is left enabled.",
+        }),
+      ),
+      indexPath: Type.Optional(
+        Type.String({
+          description:
+            "Filesystem path for the plugin-owned SQLite+sqlite-vec index file. Defaults under " +
+            "~/.openclaw/plugins/paperless-ngx/. The file is fully rebuildable from paperless-ngx " +
+            "content, so it never needs its own backup strategy beyond copying this one file.",
+        }),
+      ),
+      // Gemini's embeddings API is called directly over HTTP -- see
+      // src/semantic/embedding-provider.ts. Without `apiKey`, the semantic
+      // index simply never comes up and paperless_search_documents stays
+      // lexical-only (fail open), same as any other unavailable-backend case.
+      embedding: Type.Optional(
+        Type.Object({
+          modelPath: Type.Optional(
+            Type.String({
+              description: "Gemini embeddings model id to use. Defaults to gemini-embedding-2.",
+            }),
+          ),
+          // Same SecretRef-or-plain-string shape as the top-level apiToken
+          // above, resolved the same way (see resolveApiKey in
+          // src/semantic/handle.ts).
+          apiKey: Type.Optional(
+            Type.Union([Type.String(), Type.Object({}, { additionalProperties: true })], {
+              description:
+                "Gemini API key used to embed document content and search queries for semantic " +
+                "search, as a plain string or a SecretRef object. Required for semantic search to do " +
+                "anything -- OCR content is sent to Google's Gemini API to embed it. Without this, " +
+                "paperless_search_documents silently stays lexical-only.",
+            }),
+          ),
+        }),
+      ),
+    }),
+  ),
 });
 
 async function resolveApiToken(api: OpenClawPluginApi, value: unknown): Promise<string> {
@@ -73,8 +123,14 @@ const entry: OpenClawPluginDefinition = definePluginEntry({
   ),
   register(api) {
     const handle = createClientHandle(api);
+    // Same pattern as the paperless client handle above: kicked off
+    // without awaiting (register() must stay synchronous), resolves once,
+    // and always resolves to *some* handle (never rejects) -- see
+    // createSemanticSearchHandle's own doc comment for why setup failures
+    // fail open instead of surfacing here.
+    const semanticHandle = createSemanticSearchHandle(api, handle);
 
-    api.registerTool(createSearchDocumentsTool(handle));
+    api.registerTool(createSearchDocumentsTool(handle, semanticHandle));
     api.registerTool(createGetDocumentTool(handle));
     api.registerTool(createReadDocumentTool(handle));
     api.registerTool(createSearchDocumentContentTool(handle));
