@@ -1,6 +1,6 @@
 {
   "name": "@transmitt0r/openclaw-plugin-trilium",
-  "version": "0.0.0-development",
+  "version": "0.1.0",
   "description": "OpenClaw plugin for TriliumNext Notes",
   "type": "module",
   "license": "MIT",
