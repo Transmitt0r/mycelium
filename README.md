@@ -1,5 +1,8 @@
 # openclaw-plugin-trilium
 
+[![CI](https://github.com/Transmitt0r/openclaw-plugin-trilium/actions/workflows/ci.yml/badge.svg)](https://github.com/Transmitt0r/openclaw-plugin-trilium/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 An [OpenClaw](https://docs.openclaw.ai) plugin for [TriliumNext](https://triliumnotes.org/) Notes,
 talking to its [ETAPI](https://docs.triliumnotes.org/user-guide/advanced-usage/etapi) REST API.
 
@@ -124,6 +127,12 @@ notes (default 2000, generous enough for a typical personal vault); later passes
 recently-changed notes. If your vault has more `text`/`code` notes than the initial cap, a warning
 is logged and the rest catch up gradually as their `dateModified` rolls forward -- raise
 `initialBackfillLimit` (and let the index rebuild) if you want full coverage sooner.
+
+The first backfill processes several notes at a time (default concurrency 4 -- one Trilium content
+fetch plus one Gemini embed call per note) rather than all at once, to stay courteous to both
+APIs' rate limits. A vault with a couple thousand existing `text`/`code` notes can still take on
+the order of tens of minutes of wall-clock network round-trips to fully backfill, during which
+semantic search coverage is partial (lexical/attribute search still works normally throughout).
 
 ## Skills
 

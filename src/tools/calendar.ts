@@ -1,7 +1,7 @@
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { type Static, Type } from "typebox";
 import type { TriliumClient, TriliumClientHandle } from "../client.js";
-import { toToolResult, unwrap } from "../client.js";
+import { noteUrl, toToolResult, unwrap } from "../client.js";
 
 const getCalendarNoteParams = Type.Object({
   kind: Type.Union(
@@ -66,7 +66,7 @@ export function createGetCalendarNoteTool(
       const noteId = note.noteId;
       return toToolResult({
         ...note,
-        url: typeof noteId === "string" ? `${baseUrl}/#${noteId}` : undefined,
+        url: typeof noteId === "string" ? noteUrl(baseUrl, noteId) : undefined,
       });
     },
   };

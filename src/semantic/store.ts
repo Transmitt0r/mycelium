@@ -238,13 +238,17 @@ export class SemanticIndexStore {
     });
   }
 
+  // A single bulk DELETE against the vec0 table (matched via a subquery
+  // into semantic_chunks) instead of a SELECT followed by one DELETE per
+  // chunk id in a JS loop -- a note re-indexed on every sync pass that
+  // touches it no longer pays N separate statement round-trips for a note
+  // with N chunks.
   private deleteNoteChunks(noteId: string): void {
-    const ids = this.db.prepare("SELECT id FROM semantic_chunks WHERE note_id = ?").all(noteId) as {
-      id: string;
-    }[];
-    if (ids.length === 0) return;
-    const deleteVec = this.db.prepare(`DELETE FROM ${VEC_TABLE} WHERE id = ?`);
-    for (const { id } of ids) deleteVec.run(id);
+    this.db
+      .prepare(
+        `DELETE FROM ${VEC_TABLE} WHERE id IN (SELECT id FROM semantic_chunks WHERE note_id = ?)`,
+      )
+      .run(noteId);
     this.db.prepare("DELETE FROM semantic_chunks WHERE note_id = ?").run(noteId);
   }
 

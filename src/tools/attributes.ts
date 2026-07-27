@@ -115,9 +115,11 @@ export function createDeleteAttributeTool(
     parameters: deleteAttributeParams,
     execute: async (_toolCallId, params: Static<typeof deleteAttributeParams>) => {
       const { client } = await handlePromise;
-      await client.DELETE("/attributes/{attributeId}", {
-        params: { path: { attributeId: params.attribute_id } },
-      });
+      unwrap(
+        await client.DELETE("/attributes/{attributeId}", {
+          params: { path: { attributeId: params.attribute_id } },
+        }),
+      );
       return toToolResult({ attribute_id: params.attribute_id, deleted: true });
     },
   };

@@ -32,9 +32,11 @@ export function createCreateRevisionTool(
     parameters: createRevisionParams,
     execute: async (_toolCallId, params: Static<typeof createRevisionParams>) => {
       const { client } = await handlePromise;
-      await client.POST("/notes/{noteId}/revision", {
-        params: { path: { noteId: params.note_id } },
-      });
+      unwrap(
+        await client.POST("/notes/{noteId}/revision", {
+          params: { path: { noteId: params.note_id } },
+        }),
+      );
       return toToolResult({ note_id: params.note_id, revision_created: true });
     },
   };
@@ -81,7 +83,12 @@ export function createReadRevisionContentTool(
       );
       const wantsPlainText = !(params.raw_html ?? false) && looksLikeHtml(rawContent);
       const content = normalizeLineEndings(wantsPlainText ? htmlToText(rawContent) : rawContent);
-      const range = readRange(content, params.start_line, params.end_line);
+      const range = readRange(
+        "trilium_read_revision_content",
+        content,
+        params.start_line,
+        params.end_line,
+      );
       return toToolResult({
         revision_id: params.revision_id,
         ...range,

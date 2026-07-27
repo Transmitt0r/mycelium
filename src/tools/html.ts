@@ -43,14 +43,26 @@ function decodeEntities(text: string): string {
     );
 }
 
+// Known HTML tag names Trilium's CKEditor realistically produces --
+// deliberately a whitelist rather than "any <word...> shape", which
+// previously false-positived on ordinary text containing a generic-type or
+// comparison-like fragment (e.g. "Array<string>", "x<y>less than z"),
+// causing formatContentForWrite to skip auto-wrapping and store that text
+// raw/unescaped -- Trilium's editor then parses the false "tag" as literal,
+// broken markup.
+const KNOWN_HTML_TAGS =
+  "p|div|span|br|hr|ul|ol|li|h[1-6]|a|strong|b|em|i|u|s|strike|table|thead|tbody|tfoot|tr|td|th|" +
+  "blockquote|pre|code|img|figure|figcaption|sub|sup|mark|small|del|ins|dl|dt|dd|section|article";
+const HTML_TAG_PATTERN = new RegExp(`<\\s*/?\\s*(?:${KNOWN_HTML_TAGS})(?:[\\s>/]|$)`, "i");
+
 // Best-effort detector for "this note content is HTML" -- Trilium's own
 // content endpoint has no separate flag for it (the response is always
 // `text/html` per the ETAPI schema regardless of note type), so this
-// sniffs for a tag-shaped opening sequence rather than trusting the
+// sniffs for a known-tag opening/closing sequence rather than trusting the
 // content-type header, which is the same for a `code` note's plain source
 // as it is for a `text` note's markup.
 export function looksLikeHtml(content: string): boolean {
-  return /<\s*[a-zA-Z][^>]*>/.test(content.slice(0, 500));
+  return HTML_TAG_PATTERN.test(content.slice(0, 500));
 }
 
 // Converts Trilium's CKEditor-authored HTML into readable plain text:
@@ -66,6 +78,16 @@ export function htmlToText(html: string): string {
   const withBreaks = html
     .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "")
     .replace(/<br\s*\/?>/gi, "\n")
+    // A nested <ul>/<ol> opening mid-item (e.g. <li>Parent<ul><li>Child)
+    // otherwise has no break before it at all -- only the closing tags
+    // below get one -- so the parent item's text and the nested list's
+    // first bullet merge onto a single line.
+    .replace(/<(ul|ol)[^>]*>/gi, "\n")
+    // <td>/<th> boundaries are otherwise silently stripped with no
+    // separator, so adjacent table cells (e.g. <td>Name</td><td>Age</td>)
+    // concatenate into "NameAge" -- a tab keeps cells visually distinct
+    // without claiming to be a real table renderer.
+    .replace(/<\/(td|th)>/gi, "\t")
     .replace(/<\/(li|tr)>/gi, "\n")
     .replace(/<\/(p|div|h[1-6]|blockquote|pre)>/gi, "\n\n")
     .replace(/<li[^>]*>/gi, "- ")
@@ -86,7 +108,12 @@ export function htmlToText(html: string): string {
 // markup verbatim avoids double-escaping angle brackets a caller
 // deliberately included.
 export function textToHtml(text: string): string {
-  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // Without this, Windows-style \r\n input doesn't split into paragraphs
+  // at all (the \n{2,} pattern below never matches a lone \n preceded by
+  // \r), collapsing every intended paragraph into one <br>-joined block
+  // with literal \r characters left in the stored HTML.
+  const normalized = normalizeLineEndings(text);
+  const escaped = normalized.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const paragraphs = escaped.split(/\n{2,}/).map((block) => block.replace(/\n/g, "<br>"));
   return paragraphs.map((block) => `<p>${block}</p>`).join("");
 }
@@ -96,8 +123,8 @@ export function textToHtml(text: string): string {
 // a `text`-flavored one, e.g. `code` source), otherwise auto-wrap plain
 // text into paragraphs so it renders reasonably instead of as one
 // unbroken line.
-export function formatContentForWrite(content: string, format: "auto" | "html" | "raw"): string {
-  if (format === "html" || format === "raw") return content;
+export function formatContentForWrite(content: string, format: "auto" | "html"): string {
+  if (format === "html") return content;
   return looksLikeHtml(content) ? content : textToHtml(content);
 }
 
@@ -120,8 +147,22 @@ export type BoundedRead = {
 // Caps `content` to a requested (or default) line range, the same bound
 // used across every bounded-read tool in this plugin -- mirrors
 // paperless-ngx's src/tools/documents.ts capContentForResponse/read-range
-// logic.
+// logic. `toolName` is shared by three different tools (note/attachment/
+// revision content reads), so it's a param rather than hardcoded, letting
+// each caller's thrown error stay attributable the same way every other
+// hand-thrown Error in the tool files already is.
+//
+// This only bounds what's *returned* to the caller, not the work done to
+// produce it: every caller already fetched the note/attachment/revision's
+// *entire* content over HTTP (ETAPI's content endpoints have no Range-
+// header/partial-fetch support to bound that part), and ran the full
+// string through htmlToText's regex passes and this function's own
+// content.split("\n") before this slice happens. Reading lines 1-10 of a
+// very large note still pays that full cost -- accepted the same way
+// paperless-ngx's sibling function accepts it, since neither API offers a
+// cheaper alternative.
 export function readRange(
+  toolName: string,
   content: string,
   startLineParam: number | undefined,
   endLineParam: number | undefined,
@@ -129,7 +170,7 @@ export function readRange(
   const startLine = Math.max(1, startLineParam ?? 1);
   if (endLineParam !== undefined && endLineParam < startLine) {
     throw new Error(
-      `end_line (${endLineParam}) is before start_line (${startLine}) -- pass an end_line greater than or equal to start_line.`,
+      `${toolName}: end_line (${endLineParam}) is before start_line (${startLine}) -- pass an end_line greater than or equal to start_line.`,
     );
   }
   const lines = content.split("\n");

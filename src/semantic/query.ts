@@ -16,25 +16,37 @@
 // empty string, which callers treat as "nothing to embed" (see
 // search.ts's no-op on an empty term, same as paperless-ngx's).
 export function extractFreeTextTerms(search: string): string {
-  return search
-    .replace(
-      /[#~]note\.[a-zA-Z_.]+\s*(?:=|!=|>=|<=|>|<|\*=\*|=\*|\*=|%=)?\s*("[^"]*"|'[^']*'|\S+)?/g,
-      " ",
-    )
-    .replace(
-      /\bnote\.[a-zA-Z_.]+\s*(?:=|!=|>=|<=|>|<|\*=\*|=\*|\*=|%=)?\s*("[^"]*"|'[^']*'|\S+)?/g,
-      " ",
-    )
-    .replace(
-      /[#~][a-zA-Z_][a-zA-Z0-9_.]*\s*(?:=|!=|>=|<=|>|<|\*=\*|=\*|\*=|%=)\s*("[^"]*"|'[^']*'|\S+)?/g,
-      " ",
-    )
-    .replace(/[#~][a-zA-Z_][a-zA-Z0-9_.]*/g, " ")
-    .replace(/\b(AND|OR|NOT|orderBy|limit|asc|desc)\b/gi, " ")
-    .replace(/[()]/g, " ")
-    .replace(/["']/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    search
+      .replace(
+        /[#~]note\.[a-zA-Z_.]+\s*(?:=|!=|>=|<=|>|<|\*=\*|=\*|\*=|%=)?\s*("[^"]*"|'[^']*'|\S+)?/g,
+        " ",
+      )
+      .replace(
+        /\bnote\.[a-zA-Z_.]+\s*(?:=|!=|>=|<=|>|<|\*=\*|=\*|\*=|%=)?\s*("[^"]*"|'[^']*'|\S+)?/g,
+        " ",
+      )
+      .replace(
+        /[#~][a-zA-Z_][a-zA-Z0-9_.]*\s*(?:=|!=|>=|<=|>|<|\*=\*|=\*|\*=|%=)\s*("[^"]*"|'[^']*'|\S+)?/g,
+        " ",
+      )
+      .replace(/[#~][a-zA-Z_][a-zA-Z0-9_.]*/g, " ")
+      // Case-sensitive on purpose: Trilium's own boolean-operator convention
+      // is uppercase (every example in its docs and this plugin's own tool
+      // description writes "AND"/"OR"/"NOT"), and a case-insensitive match
+      // here previously deleted the ordinary lowercase English words "and",
+      // "or", "not" out of completely unrelated free text (e.g. "salt and
+      // pepper") before it ever reached the embedding call. `orderBy`/
+      // `limit`/`asc`/`desc` are never stripped at all -- those are separate
+      // ETAPI query *params* (see createSearchNotesTool), never embedded
+      // inside the `search` string itself, so there was nothing for them to
+      // legitimately match here in the first place.
+      .replace(/\b(AND|OR|NOT)\b/g, " ")
+      .replace(/[()]/g, " ")
+      .replace(/["']/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 // Trilium's EntityId pattern (`[a-zA-Z0-9_]{4,32}`) never matches an empty

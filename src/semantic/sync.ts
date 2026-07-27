@@ -21,6 +21,7 @@ export type SyncSummary = {
   failed: number;
   fetchedNotes: number;
   hitLimit: boolean;
+  watermarkStuck: boolean;
 };
 
 export type RunSyncParams = {
@@ -40,40 +41,38 @@ export type RunSyncParams = {
 
 type NoteRow = { noteId: string; type: string; blobId: string; utcDateModified: string };
 
-/**
- * One sync pass over Trilium's corpus, scoped to `text`/`code` notes (see
- * INDEXABLE_TYPES_FILTER's doc comment).
- *
- * Unlike paperless-ngx's REST API, Trilium's ETAPI `/notes` search has no
- * pagination/offset param -- only a flat `limit` -- so this can't page
- * through an arbitrarily large corpus the way paperless-ngx's sync.ts
- * does. Instead it runs in two modes:
- *
- * - No stored watermark yet (first run ever): a one-shot backfill capped
- *   at `initialBackfillLimit`, ordered oldest-modified-first so the
- *   watermark this pass ends on is meaningful. If the result count hits
- *   the cap exactly, the vault likely has more `text`/`code` notes than
- *   this one pass covers -- logged as an explicit warning (not silently
- *   swallowed) rather than claiming a complete backfill that didn't
- *   happen. The watermark still advances to what was actually seen, so
- *   later periodic passes continue covering the rest from there.
- * - A stored watermark exists: a small delta sweep,
- *   `note.utcDateModified >= <watermark>`, capped at
- *   `incrementalSyncLimit`. `>=` (not `>`) for the same reason as
- *   paperless-ngx's `modified__gte`: Trilium can stamp the same
- *   utcDateModified on multiple notes touched by one bulk operation, and
- *   there's no secondary sort key to break that tie deterministically --
- *   re-fetching the boundary timestamp's notes on every pass is cheap
- *   thanks to the blobId short-circuit below.
- *
- * The blobId short-circuit itself is a genuine improvement over
- * paperless-ngx's design, not just a port of it: Trilium's search results
- * already carry `blobId` (a real content hash) for free, so an unchanged
- * note is detected -- and its content left unfetched entirely -- from the
- * search response alone. paperless-ngx has no equivalent field on its
- * list response and must fetch+hash full content just to find out nothing
- * changed.
- */
+// One sync pass over Trilium's corpus, scoped to `text`/`code` notes (see
+// INDEXABLE_TYPES_FILTER's doc comment).
+//
+// Unlike paperless-ngx's REST API, Trilium's ETAPI `/notes` search has no
+// pagination/offset param -- only a flat `limit` -- so this can't page
+// through an arbitrarily large corpus the way paperless-ngx's sync.ts
+// does. Instead it runs in two modes:
+//
+// - No stored watermark yet (first run ever): a one-shot backfill capped
+//   at `initialBackfillLimit`, ordered oldest-modified-first so the
+//   watermark this pass ends on is meaningful. If the result count hits
+//   the cap exactly, the vault likely has more `text`/`code` notes than
+//   this one pass covers -- logged as an explicit warning (not silently
+//   swallowed) rather than claiming a complete backfill that didn't
+//   happen. The watermark still advances to what was actually seen, so
+//   later periodic passes continue covering the rest from there.
+// - A stored watermark exists: a small delta sweep,
+//   `note.utcDateModified >= <watermark>`, capped at
+//   `incrementalSyncLimit`. `>=` (not `>`) for the same reason as
+//   paperless-ngx's `modified__gte`: Trilium can stamp the same
+//   utcDateModified on multiple notes touched by one bulk operation, and
+//   there's no secondary sort key to break that tie deterministically --
+//   re-fetching the boundary timestamp's notes on every pass is cheap
+//   thanks to the blobId short-circuit below.
+//
+// The blobId short-circuit itself is a genuine improvement over
+// paperless-ngx's design, not just a port of it: Trilium's search results
+// already carry `blobId` (a real content hash) for free, so an unchanged
+// note is detected -- and its content left unfetched entirely -- from the
+// search response alone. paperless-ngx has no equivalent field on its
+// list response and must fetch+hash full content just to find out nothing
+// changed.
 export async function runIncrementalSync(params: RunSyncParams): Promise<SyncSummary> {
   const { client, store, embeddingProvider, config, logger } = params;
   const summary: SyncSummary = {
@@ -82,6 +81,7 @@ export async function runIncrementalSync(params: RunSyncParams): Promise<SyncSum
     failed: 0,
     fetchedNotes: 0,
     hitLimit: false,
+    watermarkStuck: false,
   };
 
   const watermark = store.getSyncWatermark();
@@ -132,6 +132,24 @@ export async function runIncrementalSync(params: RunSyncParams): Promise<SyncSum
   await processNotes(rows, { client, store, embeddingProvider, config, logger, summary });
 
   const newestSeen = rows.at(-1)?.utcDateModified;
+  // If this incremental pass hit its limit yet the newest timestamp seen
+  // is exactly the same as the watermark it started from, every note
+  // returned shares that one boundary instant -- the `>=` filter will keep
+  // re-fetching this same leading subset forever and the watermark can
+  // never advance past it (more notes are tied at that instant than
+  // incrementalSyncLimit allows through in one pass). Trilium's ETAPI has
+  // no secondary sort key or cursor to break the tie deterministically, so
+  // this can't be fixed by paging further -- surfaced as a loud warning
+  // instead of silently looping, matching this function's existing
+  // hitLimit warning for the analogous initial-backfill cap.
+  if (watermark && rows.length >= limit && newestSeen === watermark) {
+    summary.watermarkStuck = true;
+    logger?.warn(
+      `semantic search: sync watermark stuck at ${watermark} -- more than ${limit} notes share ` +
+        "that exact utcDateModified instant, so this incremental pass made no forward progress. " +
+        "Raise semanticSearch.incrementalSyncLimit if this persists across repeated passes.",
+    );
+  }
   if (newestSeen) {
     store.setSyncWatermark(newestSeen);
   }

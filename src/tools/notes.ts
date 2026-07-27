@@ -1,11 +1,12 @@
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { type Static, Type } from "typebox";
 import type { TriliumClient, TriliumClientHandle } from "../client.js";
-import { toToolResult, unwrap } from "../client.js";
+import { noteUrl, toToolResult, unwrap } from "../client.js";
 import type { SemanticSearchHandle } from "../semantic/handle.js";
 import type { SemanticMatch } from "../semantic/types.js";
 import {
   contentStatusFor,
+  extractSnippet,
   formatContentForWrite,
   htmlToText,
   looksLikeHtml,
@@ -18,16 +19,6 @@ const DEFAULT_SEARCH_LIMIT = 20;
 
 function clampLimit(limit: number | undefined, fallback: number): number {
   return Math.min(Math.max(limit ?? fallback, 1), MAX_SEARCH_LIMIT);
-}
-
-function noteUrl(baseUrl: string, noteId: string): string {
-  // Best-effort direct link -- Trilium's client resolves a bare
-  // `#<noteId>` hash to the note regardless of where it sits in the tree
-  // (verified against a live v0.104.1 instance), even though the app's own
-  // "copy note path" feature produces a longer `#root/.../<noteId>`
-  // breadcrumb form. The short form is used here since this plugin has no
-  // cheap way to compute a note's full ancestor path without extra calls.
-  return `${baseUrl}/#${noteId}`;
 }
 
 // -- Semantic search integration seam --
@@ -102,18 +93,27 @@ async function mergeSemanticMatches(
     .map((match) => match.noteId)
     .filter((id) => !lexicalRankById.has(id));
 
-  const semanticOnlyNotes: ShapedNote[] = [];
-  for (const noteId of missingIds) {
-    try {
-      const note = unwrap(await client.GET("/notes/{noteId}", { params: { path: { noteId } } }));
-      const match = semanticById.get(noteId);
-      semanticOnlyNotes.push(match ? withSemanticSnippet(note, match) : note);
-    } catch {
-      // The note may have been deleted between the semantic index's last
-      // sync pass and this search -- skip it rather than fail the whole
-      // search over one stale vector-index entry.
-    }
-  }
+  // Fetched concurrently (like resolveLinkedNoteNames' identical per-id
+  // fan-out), not one at a time -- there's no ordering dependency between
+  // these fetches, so a sequential loop only added latency proportional to
+  // how many semantic-only misses there were.
+  const semanticOnlyResults = await Promise.all(
+    missingIds.map(async (noteId) => {
+      try {
+        const note = unwrap(await client.GET("/notes/{noteId}", { params: { path: { noteId } } }));
+        const match = semanticById.get(noteId);
+        return match ? withSemanticSnippet(note, match) : note;
+      } catch {
+        // The note may have been deleted between the semantic index's last
+        // sync pass and this search -- skip it rather than fail the whole
+        // search over one stale vector-index entry.
+        return undefined;
+      }
+    }),
+  );
+  const semanticOnlyNotes = semanticOnlyResults.filter(
+    (note): note is ShapedNote => note !== undefined,
+  );
 
   const upgradedLexical = notes.map((note) => {
     const match = typeof note.noteId === "string" ? semanticById.get(note.noteId) : undefined;
@@ -138,7 +138,14 @@ async function mergeSemanticMatches(
     }))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .slice(0, limit)
-    .map(({ note }) => ({ ...note, url: noteUrl(baseUrl, note.noteId as string) }));
+    .map(({ note }) => ({
+      ...note,
+      // Guarded the same way every other noteId access in this function is
+      // (ETAPI schema types Note.noteId as optional) -- a note without one
+      // just doesn't get a `url` rather than masking a possible `undefined`
+      // behind a cast.
+      ...(typeof note.noteId === "string" ? { url: noteUrl(baseUrl, note.noteId) } : {}),
+    }));
 }
 
 // Trilium's search response carries no match excerpt or relevance score
@@ -259,16 +266,22 @@ export function createSearchNotesTool(
 
 const MAX_RESOLVE_NAMES = 50;
 
+// `maxCount` is a caller-supplied slice of a *shared* budget (see
+// createGetNoteTool below) rather than a hardcoded per-call constant --
+// resolve_names' own doc comment promises a single combined cap across
+// parents and children, and this used to apply MAX_RESOLVE_NAMES to each
+// side independently, silently allowing up to 100 total resolutions.
 async function resolveLinkedNoteNames(
   client: TriliumClient,
   noteIds: string[],
   branchIds: string[],
+  maxCount: number,
 ): Promise<{
   names: { noteId: string; branchId?: string; title: string; type: string }[];
   truncated: boolean;
 }> {
-  const truncated = noteIds.length > MAX_RESOLVE_NAMES;
-  const idsToResolve = noteIds.slice(0, MAX_RESOLVE_NAMES);
+  const truncated = noteIds.length > maxCount;
+  const idsToResolve = noteIds.slice(0, maxCount);
   const names = await Promise.all(
     idsToResolve.map(async (noteId, i) => {
       try {
@@ -304,6 +317,15 @@ const getNoteParams = Type.Object({
         "Include this note's revision history (metadata only, not content). Defaults to false.",
     }),
   ),
+  excerpt_search: Type.Optional(
+    Type.String({
+      description:
+        "If given, include a short content_snippet around the first place this term appears in " +
+        "the note's content -- the same kind of excerpt trilium_search_notes returns for a semantic " +
+        "match, scoped to one note you already know the id of. Never returns the full note; use " +
+        "trilium_read_note_content for that.",
+    }),
+  ),
 });
 
 export function createGetNoteTool(handlePromise: Promise<TriliumClientHandle>): AnyAgentTool {
@@ -312,7 +334,8 @@ export function createGetNoteTool(handlePromise: Promise<TriliumClientHandle>): 
     label: "Get a Trilium note",
     description:
       "Fetch a single note's metadata by id -- title, type, attributes (labels/relations), tree " +
-      "placement. Never returns content; use trilium_read_note_content for that. By default also " +
+      "placement. Never returns full content; pass excerpt_search for a short content_snippet around " +
+      "one term, or use trilium_read_note_content for the full thing. By default also " +
       "resolves parent/child note ids to titles (see resolve_names) so browsing the tree rarely " +
       "needs more than one follow-up call.",
     parameters: getNoteParams,
@@ -322,36 +345,59 @@ export function createGetNoteTool(handlePromise: Promise<TriliumClientHandle>): 
         await client.GET("/notes/{noteId}", { params: { path: { noteId: params.note_id } } }),
       );
 
-      const result: Record<string, unknown> = { ...note, url: noteUrl(baseUrl, params.note_id) };
+      const wantsNames = params.resolve_names ?? true;
+      const parentIds = note.parentNoteIds ?? [];
+      const childIds = note.childNoteIds ?? [];
+      // Shares one MAX_RESOLVE_NAMES-sized budget across parents+children
+      // (parents get first claim on it, children get whatever's left) --
+      // see resolveLinkedNoteNames's own comment for why this replaced two
+      // independent 50-id caps.
+      const parentBudget = Math.min(parentIds.length, MAX_RESOLVE_NAMES);
+      const childBudget = Math.max(0, MAX_RESOLVE_NAMES - parentBudget);
 
-      if (params.resolve_names ?? true) {
-        const parents = await resolveLinkedNoteNames(
-          client,
-          note.parentNoteIds ?? [],
-          note.parentBranchIds ?? [],
-        );
-        const children = await resolveLinkedNoteNames(
-          client,
-          note.childNoteIds ?? [],
-          note.childBranchIds ?? [],
-        );
+      // None of these five fetches depends on any other's result, so they
+      // run concurrently instead of paying the sum of all five latencies
+      // sequentially when a caller asks for several of these in one call.
+      const [parents, children, attachments, revisions, rawContent] = await Promise.all([
+        wantsNames
+          ? resolveLinkedNoteNames(client, parentIds, note.parentBranchIds ?? [], parentBudget)
+          : Promise.resolve(undefined),
+        wantsNames
+          ? resolveLinkedNoteNames(client, childIds, note.childBranchIds ?? [], childBudget)
+          : Promise.resolve(undefined),
+        params.include_attachments
+          ? client
+              .GET("/notes/{noteId}/attachments", { params: { path: { noteId: params.note_id } } })
+              .then(unwrap)
+          : Promise.resolve(undefined),
+        params.include_revisions
+          ? client
+              .GET("/notes/{noteId}/revisions", { params: { path: { noteId: params.note_id } } })
+              .then(unwrap)
+          : Promise.resolve(undefined),
+        params.excerpt_search !== undefined
+          ? client
+              .GET("/notes/{noteId}/content", {
+                params: { path: { noteId: params.note_id } },
+                parseAs: "text",
+              })
+              .then(unwrap)
+          : Promise.resolve(undefined),
+      ]);
+
+      const result: Record<string, unknown> = { ...note, url: noteUrl(baseUrl, params.note_id) };
+      if (parents && children) {
         result.parents = parents.names;
         result.children = children.names;
         if (parents.truncated || children.truncated) result.names_truncated = true;
       }
-
-      if (params.include_attachments) {
-        result.attachments = unwrap(
-          await client.GET("/notes/{noteId}/attachments", {
-            params: { path: { noteId: params.note_id } },
-          }),
-        );
-      }
-      if (params.include_revisions) {
-        result.revisions = unwrap(
-          await client.GET("/notes/{noteId}/revisions", {
-            params: { path: { noteId: params.note_id } },
-          }),
+      if (attachments) result.attachments = attachments;
+      if (revisions) result.revisions = revisions;
+      if (rawContent !== undefined) {
+        const plainText = looksLikeHtml(rawContent) ? htmlToText(rawContent) : rawContent;
+        result.content_snippet = extractSnippet(
+          normalizeLineEndings(plainText),
+          params.excerpt_search,
         );
       }
 
@@ -411,7 +457,12 @@ export function createReadNoteContentTool(
       );
       const wantsPlainText = !(params.raw_html ?? false) && looksLikeHtml(rawContent);
       const content = normalizeLineEndings(wantsPlainText ? htmlToText(rawContent) : rawContent);
-      const range = readRange(content, params.start_line, params.end_line);
+      const range = readRange(
+        "trilium_read_note_content",
+        content,
+        params.start_line,
+        params.end_line,
+      );
       return toToolResult({
         note_id: params.note_id,
         ...range,
@@ -573,13 +624,18 @@ export function createUpdateNoteTool(handlePromise: Promise<TriliumClientHandle>
         // ETAPI's content endpoint takes a bare `text/plain` body, not
         // JSON -- override both the serializer (skip JSON.stringify) and
         // the Content-Type header (openapi-fetch defaults to
-        // application/json for every request otherwise).
-        await client.PUT("/notes/{noteId}/content", {
-          params: { path: { noteId: params.note_id } },
-          headers: { "Content-Type": "text/plain" },
-          body: formatContentForWrite(params.content, params.content_format ?? "auto"),
-          bodySerializer: (body: unknown) => body as string,
-        });
+        // application/json for every request otherwise). Routed through
+        // unwrap() (not a bare await) so a failed write throws instead of
+        // silently falling through to the re-fetch below and reporting the
+        // note's stale, pre-write content back as if the write succeeded.
+        unwrap(
+          await client.PUT("/notes/{noteId}/content", {
+            params: { path: { noteId: params.note_id } },
+            headers: { "Content-Type": "text/plain" },
+            body: formatContentForWrite(params.content, params.content_format ?? "auto"),
+            bodySerializer: (body: unknown) => body as string,
+          }),
+        );
         note = unwrap(
           await client.GET("/notes/{noteId}", { params: { path: { noteId: params.note_id } } }),
         );
@@ -607,7 +663,9 @@ export function createDeleteNoteTool(handlePromise: Promise<TriliumClientHandle>
     parameters: deleteNoteParams,
     execute: async (_toolCallId, params: Static<typeof deleteNoteParams>) => {
       const { client } = await handlePromise;
-      await client.DELETE("/notes/{noteId}", { params: { path: { noteId: params.note_id } } });
+      unwrap(
+        await client.DELETE("/notes/{noteId}", { params: { path: { noteId: params.note_id } } }),
+      );
       return toToolResult({ note_id: params.note_id, deleted: true });
     },
   };

@@ -88,9 +88,11 @@ export function createRemoveNoteFromLocationTool(
     parameters: removeNoteFromLocationParams,
     execute: async (_toolCallId, params: Static<typeof removeNoteFromLocationParams>) => {
       const { client } = await handlePromise;
-      await client.DELETE("/branches/{branchId}", {
-        params: { path: { branchId: params.branch_id } },
-      });
+      unwrap(
+        await client.DELETE("/branches/{branchId}", {
+          params: { path: { branchId: params.branch_id } },
+        }),
+      );
       return toToolResult({ branch_id: params.branch_id, removed: true });
     },
   };

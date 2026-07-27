@@ -29,6 +29,21 @@ describe("extractFreeTextTerms", () => {
   it("unquotes an exact-match phrase", () => {
     expect(extractFreeTextTerms('"Two Towers"')).toBe("Two Towers");
   });
+
+  // Regression test for a real bug found in review: the operator-stripping
+  // regex was case-insensitive, so it deleted the ordinary lowercase
+  // English words "and"/"or"/"not" out of completely unrelated free text
+  // before it ever reached the embedding call.
+  it("does not strip lowercase 'and'/'or'/'not' when they're ordinary English words, not operators", () => {
+    expect(extractFreeTextTerms("salt and pepper")).toBe("salt and pepper");
+    expect(extractFreeTextTerms("terms and conditions")).toBe("terms and conditions");
+    expect(extractFreeTextTerms("this or that")).toBe("this or that");
+    expect(extractFreeTextTerms("do not disturb")).toBe("do not disturb");
+  });
+
+  it("does not strip 'limit'/'asc'/'desc' -- those are separate query params, never part of `search`", () => {
+    expect(extractFreeTextTerms("limit the damage asc desc")).toBe("limit the damage asc desc");
+  });
 });
 
 describe("toUtcDateTimeLiteral", () => {

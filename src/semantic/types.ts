@@ -117,6 +117,14 @@ export const DEFAULT_SEMANTIC_SEARCH_CONFIG: Omit<SemanticSearchConfig, "indexPa
   // Subsequent passes only need to sweep recently-changed notes, not the
   // whole vault again.
   incrementalSyncLimit: 200,
-  embedConcurrency: 2,
+  // Bumped from the paperless-ngx sibling's default of 2: this plugin's
+  // per-note work is a single content GET + one embedBatch call, lighter
+  // per-item than paperless-ngx's OCR-content path, and 2 was found (in
+  // review) to make a multi-thousand-note first backfill take on the
+  // order of tens of minutes at the default initialBackfillLimit. Still
+  // conservative relative to Gemini's own rate limits -- see the README's
+  // Semantic search section for the resulting expected first-backfill
+  // duration.
+  embedConcurrency: 4,
   queryTimeoutMs: 3_000,
 };

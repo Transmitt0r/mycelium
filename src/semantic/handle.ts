@@ -92,6 +92,9 @@ export function createSemanticSearchHandle(
     api.pluginConfig as { semanticSearch?: SemanticSearchPluginConfig } | undefined
   )?.semanticSearch;
   const config = resolveConfig(rawConfig);
+  // Falls back to a no-op logger rather than assuming api.logger is always
+  // set -- register() must never throw or produce an unhandled rejection
+  // just because logging is unavailable in whatever hosted this plugin.
   const logger: PluginLogger = api.logger ?? {
     info: () => {},
     warn: () => {},
@@ -119,6 +122,9 @@ async function setup(
   rawApiKey: unknown,
   logger: PluginLogger,
 ): Promise<SemanticSearchHandle> {
+  // Checked before touching the filesystem at all: without a key there's
+  // nothing this backend can do, so there's no reason to create the index
+  // file/directory for a user who hasn't configured Gemini access yet.
   const apiKey = await resolveApiKey(api, rawApiKey);
   if (!apiKey) {
     logger.warn(
@@ -136,6 +142,10 @@ async function setup(
   }
   const { store } = opened;
 
+  // From here on, a thrown error must still close the already-open store
+  // before propagating -- otherwise the outer .catch() in
+  // createSemanticSearchHandle falls back to unavailableHandle() (a no-op
+  // dispose()) and the open SQLite handle/lock is never released.
   try {
     return setupWithOpenStore(store, config, apiKey, clientHandlePromise, api, logger);
   } catch (err) {

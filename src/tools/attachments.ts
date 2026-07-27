@@ -4,7 +4,6 @@ import type { TriliumClientHandle } from "../client.js";
 import { toToolResult, unwrap } from "../client.js";
 import {
   contentStatusFor,
-  formatContentForWrite,
   htmlToText,
   looksLikeHtml,
   normalizeLineEndings,
@@ -117,7 +116,12 @@ export function createGetAttachmentTool(handlePromise: Promise<TriliumClientHand
       );
       const wantsPlainText = !(params.raw_html ?? false) && looksLikeHtml(rawContent);
       const content = normalizeLineEndings(wantsPlainText ? htmlToText(rawContent) : rawContent);
-      const range = readRange(content, params.start_line, params.end_line);
+      const range = readRange(
+        "trilium_get_attachment",
+        content,
+        params.start_line,
+        params.end_line,
+      );
       return toToolResult({ ...attachment, ...range, content_status: contentStatusFor(content) });
     },
   };
@@ -129,11 +133,13 @@ const updateAttachmentParams = Type.Object({
   mime: Type.Optional(Type.String({ description: "New MIME type." })),
   role: Type.Optional(Type.String({ description: "New role." })),
   position: Type.Optional(Type.Integer({ description: "New display order." })),
-  content: Type.Optional(Type.String({ description: "Full replacement content, if given." })),
-  content_format: Type.Optional(
-    Type.Union([Type.Literal("auto"), Type.Literal("html")], {
+  content: Type.Optional(
+    Type.String({
       description:
-        "Same as trilium_create_note's content_format. Only applies when content is given.",
+        "Full replacement content, if given -- written verbatim, with no auto-HTML-wrapping (unlike " +
+        "trilium_update_note's content). Attachments are arbitrary mime-typed blobs, not guaranteed " +
+        "CKEditor-authored HTML the way a `text`-type note's content is, so there's no safe default " +
+        "assumption to auto-format against.",
     }),
   ),
 });
@@ -175,12 +181,19 @@ export function createUpdateAttachmentTool(
           );
 
       if (params.content !== undefined) {
-        await client.PUT("/attachments/{attachmentId}/content", {
-          params: { path: { attachmentId: params.attachment_id } },
-          headers: { "Content-Type": "text/plain" },
-          body: formatContentForWrite(params.content, params.content_format ?? "auto"),
-          bodySerializer: (body: unknown) => body as string,
-        });
+        // See notes.ts's identical unwrap() usage on its content PUT -- a
+        // failed write must throw here rather than silently falling through
+        // to the re-fetch below and reporting stale content as success.
+        // Written verbatim (no formatContentForWrite) -- see
+        // updateAttachmentParams' content doc comment for why.
+        unwrap(
+          await client.PUT("/attachments/{attachmentId}/content", {
+            params: { path: { attachmentId: params.attachment_id } },
+            headers: { "Content-Type": "text/plain" },
+            body: params.content,
+            bodySerializer: (body: unknown) => body as string,
+          }),
+        );
         attachment = unwrap(
           await client.GET("/attachments/{attachmentId}", {
             params: { path: { attachmentId: params.attachment_id } },
@@ -208,9 +221,11 @@ export function createDeleteAttachmentTool(
     parameters: deleteAttachmentParams,
     execute: async (_toolCallId, params: Static<typeof deleteAttachmentParams>) => {
       const { client } = await handlePromise;
-      await client.DELETE("/attachments/{attachmentId}", {
-        params: { path: { attachmentId: params.attachment_id } },
-      });
+      unwrap(
+        await client.DELETE("/attachments/{attachmentId}", {
+          params: { path: { attachmentId: params.attachment_id } },
+        }),
+      );
       return toToolResult({ attachment_id: params.attachment_id, deleted: true });
     },
   };
