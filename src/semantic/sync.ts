@@ -161,6 +161,10 @@ async function processNotes(
       const rawContent = unwrap(
         await client.GET("/notes/{noteId}/content", {
           params: { path: { noteId: row.noteId } },
+          // See src/tools/notes.ts's identical override for why this is
+          // required -- openapi-fetch defaults to JSON.parse regardless of
+          // the real (always text/html) Content-Type here.
+          parseAs: "text",
         }),
       );
       const plainText = looksLikeHtml(rawContent) ? htmlToText(rawContent) : rawContent;

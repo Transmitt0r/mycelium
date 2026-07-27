@@ -73,6 +73,10 @@ export function createReadRevisionContentTool(
       const rawContent = unwrap(
         await client.GET("/revisions/{revisionId}/content", {
           params: { path: { revisionId: params.revision_id } },
+          // See src/tools/notes.ts's identical override -- openapi-fetch
+          // defaults to JSON.parse regardless of the real (text/html)
+          // Content-Type here.
+          parseAs: "text",
         }),
       );
       const wantsPlainText = !(params.raw_html ?? false) && looksLikeHtml(rawContent);

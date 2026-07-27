@@ -402,6 +402,11 @@ export function createReadNoteContentTool(
       const rawContent = unwrap(
         await client.GET("/notes/{noteId}/content", {
           params: { path: { noteId: params.note_id } },
+          // openapi-fetch defaults every response to JSON.parse regardless
+          // of the actual Content-Type header -- this endpoint always
+          // returns text/html, never JSON, so parseAs must be overridden
+          // explicitly or a real HTML response throws a JSON parse error.
+          parseAs: "text",
         }),
       );
       const wantsPlainText = !(params.raw_html ?? false) && looksLikeHtml(rawContent);

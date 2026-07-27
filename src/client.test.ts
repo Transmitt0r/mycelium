@@ -50,4 +50,35 @@ describe("createTriliumClient", () => {
     expect(request.url).toBe("https://trilium.example.com/etapi/notes?search=test");
     expect(request.headers.get("authorization")).toBe("test-token");
   });
+
+  // Regression test for a real bug found testing against a live Trilium
+  // instance: openapi-fetch defaults every response to JSON.parse
+  // regardless of the actual Content-Type header (confirmed by reading its
+  // source -- `parseAs = "json"` is a static default, not content-type
+  // sniffed). Content endpoints (/notes/{id}/content and friends) always
+  // return text/html, never JSON -- a real response body like
+  // "<p>hello</p>" threw "Unexpected token '<' ... is not valid JSON"
+  // until every content-reading call passed `parseAs: "text"` explicitly.
+  it("returns the raw text body for a content endpoint given parseAs: 'text', instead of throwing a JSON parse error", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response("<p>hello</p>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createTriliumClient({
+      baseUrl: "https://trilium.example.com",
+      apiToken: "test-token",
+    });
+    const result = await client.GET("/notes/{noteId}/content", {
+      params: { path: { noteId: "abc1" } },
+      parseAs: "text",
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.data).toBe("<p>hello</p>");
+  });
 });
