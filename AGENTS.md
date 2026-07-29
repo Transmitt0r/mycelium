@@ -13,7 +13,8 @@
 
 ## Working in this repo
 
-- Run `bun install`, `bun run build`, `bun run lint`, `bun test` before committing.
+- Run `bun install`, `bun run build`, `bun run typecheck`, `bun run lint`, `bun test` before committing.
+- `packages/index` also has `bun run test:integration` (run from within that package), which runs under plain **Node**, not Bun — its sqlite-vec backing needs `node:sqlite`'s extension-loading support, which Bun's bundled sqlite3 build doesn't have. It exercises the built `dist/` output, so `bun run build` must happen first. CI runs both.
 - Versioning/publishing goes through [Changesets](https://github.com/changesets/changesets), not semantic-release — this is a multi-package repo with independent per-package versions, and Changesets is what most TS monorepos in this space use. Run `bun run changeset` to record a change before opening a PR; the release workflow opens a "Version Packages" PR and publishes on merge.
 - Never hand-edit a package's `version` — Changesets owns it.
 - `@mycelium/embed`'s local-CPU embedding fallback must stay **opt-in**, never a silent default. A prior in-process local-inference attempt in a sibling plugin (paperless-ngx) got OOM-killed in production on a memory-constrained host — see that repo's `src/semantic/embedding-provider.ts` history before changing this default.

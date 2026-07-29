@@ -18,7 +18,8 @@
     "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.test.json",
     "lint": "biome check .",
-    "test": "bun test"
+    "test": "bun test",
+    "test:integration": "node --test test/**/*.node.mjs"
   },
   "license": "MIT",
   "repository": {

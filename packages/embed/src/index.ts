@@ -1,3 +1,12 @@
+import {
+  createLocalEmbeddingProvider,
+  type LocalEmbeddingProviderConfig,
+} from "./providers/local.js";
+import {
+  createOpenAICompatibleEmbeddingProvider,
+  type OpenAICompatibleEmbeddingProviderConfig,
+} from "./providers/openai-compatible.js";
+
 export interface EmbeddingProvider {
   readonly id: string;
   readonly model: string;
@@ -6,13 +15,19 @@ export interface EmbeddingProvider {
   embedBatch(texts: string[]): Promise<number[][]>;
 }
 
-export interface EmbeddingProviderConfig {
-  // "local" is opt-in only — see AGENTS.md for why.
-  provider: "openai-compatible" | "local";
-  model?: string;
-  baseUrl?: string;
-  apiKey?: string;
+// "local" is opt-in only — see AGENTS.md for why.
+export type EmbeddingProviderConfig =
+  | ({ provider: "openai-compatible" } & OpenAICompatibleEmbeddingProviderConfig)
+  | ({ provider: "local" } & LocalEmbeddingProviderConfig);
+
+export function createEmbeddingProvider(config: EmbeddingProviderConfig): EmbeddingProvider {
+  switch (config.provider) {
+    case "openai-compatible":
+      return createOpenAICompatibleEmbeddingProvider(config);
+    case "local":
+      return createLocalEmbeddingProvider(config);
+  }
 }
 
-// TODO: createOpenAICompatibleEmbeddingProvider(config) — via @ai-sdk/openai-compatible.
-// TODO: createLocalEmbeddingProvider(config) — via @huggingface/transformers.
+export type { LocalEmbeddingProviderConfig, OpenAICompatibleEmbeddingProviderConfig };
+export { createLocalEmbeddingProvider, createOpenAICompatibleEmbeddingProvider };

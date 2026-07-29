@@ -30,7 +30,5 @@ export interface BridgeableTool<TParams = unknown, TDetails = unknown> {
   ): Promise<{ content: (TextContent | ImageContent)[]; details: TDetails }>;
 }
 
-// TODO: toMcpTool(tool) — registers against an McpServer, params -> inputSchema,
-//       {content, details} -> CallToolResult.
-// TODO: serveStdio(tools) / serveHttp(tools, opts) — StdioServerTransport /
-//       StreamableHTTPServerTransport.
+export { createMcpServer, type ServerInfo } from "./bridge.js";
+export { type HttpServerHandle, type ServeHttpOptions, serveHttp, serveStdio } from "./serve.js";

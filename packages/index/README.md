@@ -14,6 +14,43 @@ almost line-for-line by the paperless-ngx and trilium OpenClaw plugins.
 - **Source-agnostic**: a small `SourceAdapter` interface is the only thing a new source
   system needs to implement.
 
+## Usage
+
+```ts
+import { openSemanticIndex } from "@mycelium/index";
+import { createEmbeddingProvider } from "@mycelium/embed";
+
+const result = await openSemanticIndex({
+  embeddingProvider: createEmbeddingProvider({
+    provider: "openai-compatible",
+    baseUrl: "https://openrouter.ai/api/v1",
+    apiKey: process.env.OPENROUTER_API_KEY,
+    model: "text-embedding-3-small",
+    dimensions: 1536,
+  }),
+  dbPath: "./semantic-index.db",
+  chunkTokens: 400,
+  chunkOverlap: 80,
+  embedConcurrency: 2,
+  maxItemsPerSync: 200,
+  queryTimeoutMs: 3_000,
+});
+if (!result.available) throw new Error(result.reason);
+
+await result.index.sync(mySourceAdapter);
+const matches = await result.index.search("invoice from March", 5);
+```
+
+`mySourceAdapter` is whatever implements `SourceAdapter` for the system being indexed —
+paperless-ngx, Trilium, or anything else with a "list what changed since X" + "fetch content by
+id" shape.
+
+## Runtime requirement
+
+The sqlite-vec backing needs `node:sqlite`'s extension-loading support, which Bun does not
+implement (verified directly — Bun's bundled sqlite3 build has extension loading compiled out).
+Run this package under Node.
+
 ## Provider swaps and rebuilds
 
 Every embedding provider/model change must trigger a full index rebuild — a table can never
