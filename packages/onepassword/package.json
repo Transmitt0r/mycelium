@@ -1,0 +1,59 @@
+{
+  "name": "@transmitt0r/openclaw-plugin-onepassword",
+  "version": "0.0.0-development",
+  "description": "OpenClaw plugin — 1Password secret provider integration",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "1password",
+    "onepassword",
+    "secrets"
+  ],
+  "engines": {
+    "node": "^20.0.0 || ^22.0.0 || >=24.0.0"
+  },
+  "packageManager": "pnpm@11.15.1",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Transmitt0r/openclaw-plugin-onepassword.git"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "openclaw": ">=2026.7.0",
+      "pluginApi": ">=2026.7.0"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "skills",
+    "openclaw.plugin.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm run build && pnpm run test",
+    "release": "semantic-release"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.7.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.4",
+    "@types/node": "^26.1.1",
+    "semantic-release": "^25.0.8",
+    "typescript": "7.0.2",
+    "vitest": "^4.1.10"
+  }
+}

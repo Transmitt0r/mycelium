@@ -1,0 +1,23 @@
+{
+  "id": "onepassword",
+  "name": "1Password",
+  "description": "1Password secret provider integration for OpenClaw — batch-resolves secrets from your vaults via the op CLI.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "secretProviderIntegrations": {
+    "secret-store": {
+      "displayName": "1Password",
+      "description": "Reads secrets from 1Password vaults using the op CLI. Each SecretRef id must be a complete op://vault/item/field reference.",
+      "source": "exec",
+      "command": "${node}",
+      "args": ["./dist/resolver.js"],
+      "passEnv": ["HOME", "OP_SERVICE_ACCOUNT_TOKEN", "PATH"],
+      "jsonOnly": true,
+      "timeoutMs": 15000
+    }
+  }
+}
