@@ -1,0 +1,45 @@
+{
+  "name": "@mycelium/index",
+  "version": "0.0.0",
+  "description": "Local-first semantic index: sqlite-vec vector store, incremental content-hash sync, and hybrid lexical/semantic search via Reciprocal Rank Fusion.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "lint": "biome check .",
+    "test": "bun test"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Transmitt0r/mycelium.git",
+    "directory": "packages/index"
+  },
+  "keywords": [
+    "semantic-search",
+    "vector-search",
+    "sqlite-vec",
+    "rag",
+    "hybrid-search",
+    "rrf"
+  ],
+  "dependencies": {
+    "@mycelium/embed": "workspace:*",
+    "sqlite-vec": "^0.1.9"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^7.0.2"
+  }
+}

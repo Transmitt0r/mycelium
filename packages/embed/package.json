@@ -1,0 +1,48 @@
+{
+  "name": "@mycelium/embed",
+  "version": "0.0.0",
+  "description": "Pluggable embedding + chat client for any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, vLLM, LM Studio, ...), with an opt-in local CPU embedding fallback.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "lint": "biome check .",
+    "test": "bun test"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Transmitt0r/mycelium.git",
+    "directory": "packages/embed"
+  },
+  "keywords": [
+    "embeddings",
+    "openai-compatible",
+    "openrouter",
+    "llm",
+    "local-inference",
+    "mcp"
+  ],
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^3.0.17",
+    "ai": "^7.0.42"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^7.0.2"
+  }
+}

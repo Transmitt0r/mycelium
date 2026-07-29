@@ -1,0 +1,19 @@
+{
+  "name": "@mycelium/tooling-config",
+  "version": "0.0.0",
+  "description": "Shared biome + tsconfig presets for mycelium and its consuming plugin repos (paperless-ngx, trilium, 1password, ...).",
+  "type": "module",
+  "files": [
+    "biome.preset.json",
+    "tsconfig.base.json"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Transmitt0r/mycelium.git",
+    "directory": "packages/tooling-config"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.6"
+  }
+}
