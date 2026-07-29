@@ -19,3 +19,26 @@
 - Never hand-edit a package's `version` — Changesets owns it.
 - `@mycelium/embed`'s local-CPU embedding fallback must stay **opt-in**, never a silent default. A prior in-process local-inference attempt in a sibling plugin (paperless-ngx) got OOM-killed in production on a memory-constrained host — see that repo's `src/semantic/embedding-provider.ts` history before changing this default.
 - A brand-new package's first npm publish needs npm trusted publishing configured manually on npmjs.com first (see `.github/workflows/release.yml`'s comment) — that's a one-time bootstrap step per package, not something to route around in CI.
+
+## Distribution targets across the ecosystem
+
+Three release targets exist across this repo and its consuming plugin repos (paperless-ngx,
+trilium, 1password), but they don't apply uniformly — each package only ships to the targets
+that actually fit its shape:
+
+- **npmjs** — every `@mycelium/*` package here, via the Changesets release workflow above.
+  This is the only target that applies to this repo today.
+- **ClawHub** — only for actual OpenClaw plugins (an `openclaw.plugin.json` manifest,
+  `openclaw.compat.pluginApi`/`openclaw.build.openclawVersion` in package.json, a real
+  `register()` entrypoint). None of the `@mycelium/*` packages qualify — `@mycelium/mcp`
+  specifically exists so tools work *without* OpenClaw, so it can never become a
+  `code-plugin`. ClawHub publishing belongs to the sibling plugin repos, once they exist as
+  standalone MCP servers built on `@mycelium/mcp`.
+- **Docker** — only makes sense once there's a real deployable to containerize: an MCP
+  server with actual tools (`createMcpServer(realTools, ...)` + `serveHttp`/`serveStdio`).
+  `@mycelium/mcp` alone has no tools of its own — it's the bridge, not a server. This
+  belongs to the plugin repos too, built the day `@mycelium/mcp` actually gets wired into
+  one of them.
+
+Don't try to force ClawHub or Docker onto this repo before that integration happens — there's
+nothing valid to publish or containerize yet.
