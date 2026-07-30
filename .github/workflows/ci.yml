@@ -28,3 +28,17 @@ jobs:
       - run: pnpm run lint
 
       - run: pnpm run test
+
+  docker-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [paperless-ngx, trilium]
+    steps:
+      - uses: actions/checkout@v7
+
+      # Build-only, no push -- catches Dockerfile/pnpm-deploy regressions
+      # (see AGENTS.md's Docker note) without needing any registry
+      # credentials. Context is the repo root, not the app directory: the
+      # image needs its @mycelium/* workspace siblings to build.
+      - run: docker build -f apps/${{ matrix.app }}/Dockerfile -t ${{ matrix.app }}-mcp:ci .
