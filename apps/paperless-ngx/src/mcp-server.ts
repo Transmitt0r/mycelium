@@ -1,0 +1,116 @@
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+import {
+  type BridgeableTool,
+  createMcpServer,
+  type HttpServerHandle,
+  serveHttp,
+  serveStdio,
+} from "@mycelium/mcp";
+import { createPaperlessClient, type PaperlessClientHandle } from "./client.js";
+import { readStandaloneConfig, readTransportConfig } from "./mcp-server-config.js";
+import { createSemanticSearchCore, type Logger } from "./semantic/handle.js";
+import {
+  createGetDocumentTool,
+  createReadDocumentTool,
+  createSearchDocumentContentTool,
+  createSearchDocumentsTool,
+  createUpdateDocumentTool,
+} from "./tools/documents.js";
+import { createCreateTaxonomyTermTool, createListTaxonomyTool } from "./tools/taxonomy.js";
+
+// MCP's stdio transport uses stdout exclusively for JSON-RPC framing --
+// anything else written there corrupts the stream. Every log line here
+// goes to stderr instead; this holds regardless of which transport ends up
+// selected, so there's no branch to get wrong.
+function stderrLogger(): Logger {
+  const line = (level: string, message: string) =>
+    console.error(`[paperless-ngx-mcp] ${level} ${message}`);
+  return {
+    info: (message) => line("INFO", message),
+    warn: (message) => line("WARN", message),
+    error: (message) => line("ERROR", message),
+  };
+}
+
+function packageVersion(): string {
+  const pkg = createRequire(import.meta.url)("../package.json") as { version: string };
+  return pkg.version;
+}
+
+function defaultIndexPath(): string {
+  return path.join(os.homedir(), ".mycelium", "paperless-ngx", "semantic-index.db");
+}
+
+async function main(): Promise<void> {
+  const logger = stderrLogger();
+  const config = readStandaloneConfig(process.env);
+
+  const clientHandle: PaperlessClientHandle = {
+    client: createPaperlessClient({ baseUrl: config.baseUrl, apiToken: config.apiToken }),
+    baseUrl: config.baseUrl,
+  };
+  const handlePromise = Promise.resolve(clientHandle);
+
+  const cleanupFns: Array<() => void | Promise<void>> = [];
+  const semanticHandlePromise = createSemanticSearchCore(
+    {
+      config: config.semanticSearch,
+      logger,
+      // No SecretRef concept exists outside OpenClaw's config system -- an
+      // env var is already either a plain string or nothing.
+      resolveApiKey: async (value) =>
+        typeof value === "string" && value.length > 0 ? value : undefined,
+      defaultIndexPath,
+      registerCleanup: (cleanup) => cleanupFns.push(cleanup),
+    },
+    handlePromise,
+  );
+
+  const tools = [
+    createSearchDocumentsTool(handlePromise, semanticHandlePromise),
+    createGetDocumentTool(handlePromise),
+    createReadDocumentTool(handlePromise),
+    createSearchDocumentContentTool(handlePromise),
+    createUpdateDocumentTool(handlePromise),
+    createListTaxonomyTool(handlePromise),
+    createCreateTaxonomyTermTool(handlePromise),
+  ];
+
+  // AnyAgentTool.parameters is a TypeBox TSchema -- structurally a plain
+  // JSON Schema object at runtime (which is all BridgeableTool actually
+  // needs), but TSchema declares no string index signature, so it doesn't
+  // structurally satisfy Record<string, unknown> on its own.
+  const server = createMcpServer(tools as unknown as BridgeableTool[], {
+    name: "paperless-ngx",
+    version: packageVersion(),
+  });
+
+  const transportConfig = readTransportConfig(process.env);
+  let httpHandle: HttpServerHandle | undefined;
+  if (transportConfig.transport === "http") {
+    httpHandle = await serveHttp(server, {
+      port: transportConfig.port,
+      path: transportConfig.path,
+    });
+    logger.info?.(`listening on :${httpHandle.port}${transportConfig.path ?? "/mcp"}`);
+  } else {
+    await serveStdio(server);
+    logger.info?.("listening on stdio");
+  }
+
+  const shutdown = async (signal: string) => {
+    logger.info?.(`received ${signal}, shutting down`);
+    await Promise.all(cleanupFns.map((cleanup) => cleanup()));
+    await httpHandle?.close();
+    process.exit(0);
+  };
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+}
+
+main().catch((err) => {
+  console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+  process.exit(1);
+});

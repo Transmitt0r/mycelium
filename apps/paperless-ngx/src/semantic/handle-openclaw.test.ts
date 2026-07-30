@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PaperlessClientHandle } from "../client.js";
-import { createSemanticSearchHandle } from "./handle.js";
+import { createSemanticSearchHandle } from "./handle-openclaw.js";
 
 function fakeClientHandlePromise(): Promise<PaperlessClientHandle> {
   const client = {

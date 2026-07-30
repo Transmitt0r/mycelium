@@ -8,7 +8,7 @@ import { isSecretRef } from "openclaw/plugin-sdk/secret-input";
 import { resolveSecretRefValues } from "openclaw/plugin-sdk/secret-ref-runtime";
 import { Type } from "typebox";
 import { createPaperlessClient, type PaperlessClientHandle } from "./client.js";
-import { createSemanticSearchHandle } from "./semantic/handle.js";
+import { createSemanticSearchHandle } from "./semantic/handle-openclaw.js";
 import {
   createGetDocumentTool,
   createReadDocumentTool,
@@ -80,8 +80,8 @@ const configSchema = Type.Object({
             }),
           ),
           // Same SecretRef-or-plain-string shape as the top-level apiToken
-          // above, resolved the same way (see resolveApiKey in
-          // src/semantic/handle.ts).
+          // above, resolved the same way (see resolveApiKeyViaOpenClaw in
+          // src/semantic/handle-openclaw.ts).
           apiKey: Type.Optional(
             Type.Union([Type.String(), Type.Object({}, { additionalProperties: true })], {
               description:

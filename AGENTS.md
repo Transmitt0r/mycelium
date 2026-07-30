@@ -22,4 +22,4 @@ Three top-level categories, all pnpm workspace packages:
 
 - **npmjs** — every package here, independently (Changesets for `core/*`+`tools/*`, `semantic-release` for `apps/*`).
 - **ClawHub** — `apps/*` only. `core/*`/`tools/*` can't qualify: `@mycelium/mcp` exists specifically so tools work *without* OpenClaw.
-- **Docker** — standalone MCP servers built on `@mycelium/mcp` with real tools wired in. Not built yet for any app — `apps/paperless-ngx` and `apps/trilium` have both adopted `@mycelium/embed`/`@mycelium/index` (each plugin's `src/semantic/` module now wires those together instead of duplicating them), but nothing has adopted `@mycelium/mcp` yet.
+- **Docker** — standalone MCP servers built on `@mycelium/mcp` with real tools wired in. `apps/paperless-ngx` has one (`src/mcp-server.ts`, env-var configured, stdio/HTTP) but no Dockerfile/image yet — `apps/trilium` hasn't been wired onto `@mycelium/mcp` either. Both `apps/paperless-ngx` and `apps/trilium` have adopted `@mycelium/embed`/`@mycelium/index` (each plugin's `src/semantic/` module wires those together instead of duplicating them).

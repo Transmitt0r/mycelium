@@ -51,6 +51,9 @@ importers:
       '@mycelium/index':
         specifier: workspace:*
         version: link:../../core/index
+      '@mycelium/mcp':
+        specifier: workspace:*
+        version: link:../../core/mcp
       openapi-fetch:
         specifier: ^0.17.0
         version: 0.17.0
