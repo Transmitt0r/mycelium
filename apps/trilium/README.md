@@ -81,13 +81,17 @@ openclaw config set plugins.entries.trilium.config.apiToken \
 finds a note whose text only ever says "Kfz-Haftpflichtversicherung". This happens automatically
 inside the existing `search` param; there's no separate tool or mode to choose.
 
-This requires an API key and sends data off your machine: `text`/`code` note content is sent to
-Google's Gemini API to be embedded. **Without a `semanticSearch.embedding.apiKey` configured, this
-stays off automatically** -- `trilium_search_notes` silently falls back to Trilium's own
-lexical/attribute-only search, the same way it fails open if Gemini is unreachable, rate limits
-you, or errors for any other reason.
+This needs an embedding provider configured, and by default sends data off your machine:
+`text`/`code` note content and your search terms are sent to whatever endpoint you configure to be
+embedded. **Without `semanticSearch.embedding` fully configured, this stays off automatically** --
+`trilium_search_notes` silently falls back to Trilium's own lexical/attribute-only search, the same
+way it fails open if the embedding endpoint is unreachable, rate limits you, or errors for any
+other reason.
 
-To turn it on, set an API key ([Google AI Studio](https://aistudio.google.com/apikey)):
+Powered by [`@mycelium/embed`](https://www.npmjs.com/package/@mycelium/embed): any OpenAI-compatible
+`/v1/embeddings` endpoint works -- OpenAI, [OpenRouter](https://openrouter.ai), Ollama, vLLM, LM
+Studio, and so on. `baseUrl`, `apiKey`, `model`, and `dimensions` are all required (models vary by
+endpoint, so there's no universal default to fall back to):
 
 ```json
 {
@@ -97,7 +101,10 @@ To turn it on, set an API key ([Google AI Studio](https://aistudio.google.com/ap
         "config": {
           "semanticSearch": {
             "embedding": {
-              "apiKey": "your-gemini-api-key"
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "apiKey": "your-api-key",
+              "model": "text-embedding-3-small",
+              "dimensions": 1536
             }
           }
         }
@@ -107,8 +114,14 @@ To turn it on, set an API key ([Google AI Studio](https://aistudio.google.com/ap
 }
 ```
 
+Or run entirely on-CPU with zero API calls, opt in explicitly with `"provider": "local"`
+(`baseUrl`/`apiKey` aren't needed there -- `model`/`dimensions` default to a small bundled ONNX
+model). This is never chosen automatically: an earlier in-process local-inference attempt got
+OOM-killed in production on a memory-constrained host, so treat it as something to enable
+deliberately on a box with enough headroom, not a drop-in default.
+
 `semanticSearch.embedding.apiKey` accepts a [SecretRef](https://docs.openclaw.ai/cli/config) too,
-same as `apiToken` above. Once a key is set, the index builds up in the background; to turn it back
+same as `apiToken` above. Once configured, the index builds up in the background; to turn it back
 off or move where its local index file lives:
 
 ```json
@@ -122,17 +135,12 @@ off or move where its local index file lives:
 
 Only `text` and `code` notes are indexed -- `file`/`image`/`canvas`/etc. notes don't have
 free-form textual content to embed meaningfully. Trilium's ETAPI has no pagination on its search
-endpoint (only a flat `limit`), so the first sync pass backfills up to `semanticSearch.initialBackfillLimit`
-notes (default 2000, generous enough for a typical personal vault); later passes only need to sweep
-recently-changed notes. If your vault has more `text`/`code` notes than the initial cap, a warning
-is logged and the rest catch up gradually as their `dateModified` rolls forward -- raise
-`initialBackfillLimit` (and let the index rebuild) if you want full coverage sooner.
-
-The first backfill processes several notes at a time (default concurrency 4 -- one Trilium content
-fetch plus one Gemini embed call per note) rather than all at once, to stay courteous to both
-APIs' rate limits. A vault with a couple thousand existing `text`/`code` notes can still take on
-the order of tens of minutes of wall-clock network round-trips to fully backfill, during which
-semantic search coverage is partial (lexical/attribute search still works normally throughout).
+endpoint (only a flat `limit`), so each sync pass pages through up to 200 changed notes by
+re-querying with an advancing `utcDateModified` cursor; a pass runs on plugin startup and every 15
+minutes after. A vault with more than a couple hundred existing `text`/`code` notes backfills
+gradually over several passes (partial semantic coverage in the meantime -- lexical/attribute
+search still works normally throughout) rather than all at once, the same bound
+[`@mycelium/index`](https://www.npmjs.com/package/@mycelium/index) applies to every source it syncs.
 
 ## Skills
 

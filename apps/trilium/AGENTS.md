@@ -10,7 +10,12 @@
 - `src/tools/html.ts` — shared HTML<->plain-text conversion and bounded line-range reading, used by every content-reading/writing tool
 - `src/client.ts` — typed Trilium ETAPI client
 - `src/generated/trilium-schema.d.ts` — generated, do not hand-edit (see CONTRIBUTING.md)
-- `src/semantic/` — plugin-owned semantic search backend (SQLite+sqlite-vec index, Gemini embeddings, Trilium query-language stripping)
+- `src/semantic/` — wires `@mycelium/embed` (pluggable embedding provider) and `@mycelium/index`
+  (the actual store/sync/search engine) together for this plugin; `source-adapter.ts` is the only
+  trilium-specific piece (implements `@mycelium/index`'s `SourceAdapter`), and `query.ts` strips
+  Trilium's query-language operators out of a `search` string before anything gets embedded. Don't
+  reintroduce a local sqlite-vec/embedding-provider implementation here — that duplication is
+  exactly what got extracted into `@mycelium/*`.
 - `skills/` — OpenClaw agent skills bundled with the plugin
 - `*.test.ts` — colocated with the source they test
 
@@ -30,12 +35,13 @@
   on GitHub) and `triliumnext/notes` on Docker Hub. Active development moved to
   `TriliumNext/Trilium` (GitHub) / `triliumnext/trilium` (Docker Hub) — don't resurrect the old
   names from search results or older docs that predate the rename.
-- **ETAPI has no pagination**: `/notes` search takes only `limit`, no page/offset. `src/semantic/sync.ts`'s
-  two-tier backfill/incremental design exists specifically to work around this — read its doc
-  comment before changing sync behavior.
+- **ETAPI has no pagination**: `/notes` search takes only `limit`, no page/offset.
+  `src/semantic/source-adapter.ts`'s `listChanged` pages around this by re-querying with an
+  advancing `utcDateModified >= <cursor>` filter — read its doc comment before changing that logic.
 - **`blobId` is a free content hash**: every note in a search response already carries `blobId`, so
-  an unchanged note's content never needs to be fetched during sync. Don't reintroduce a
-  fetch-then-hash pattern (that's paperless-ngx's design, not needed here).
+  it's used directly as `@mycelium/index`'s `contentHash` — an unchanged note's content never needs
+  to be fetched during sync. Don't reintroduce a fetch-then-hash pattern (that's paperless-ngx's
+  adapter, which has no equivalent field to use instead).
 - **No batch note-fetch endpoint**: unlike paperless-ngx's `id__in`, ETAPI has nothing like
   "get many notes by id" — resolving a list of ids to names/titles is always N individual GETs.
   Keep those bounded (see `MAX_RESOLVE_NAMES` in `src/tools/notes.ts`).

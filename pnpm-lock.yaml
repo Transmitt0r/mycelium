@@ -88,6 +88,12 @@ importers:
 
   apps/trilium:
     dependencies:
+      '@mycelium/embed':
+        specifier: workspace:*
+        version: link:../../core/embed
+      '@mycelium/index':
+        specifier: workspace:*
+        version: link:../../core/index
       marked:
         specifier: ^18.0.7
         version: 18.0.7

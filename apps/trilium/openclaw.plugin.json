@@ -31,13 +31,26 @@
           "embedding": {
             "type": "object",
             "properties": {
-              "modelPath": {
+              "provider": {
                 "type": "string",
-                "description": "Gemini embeddings model id to use. Defaults to gemini-embedding-2."
+                "enum": ["openai-compatible", "local"],
+                "description": "Embedding backend to use. Defaults to \"openai-compatible\". \"local\" runs a small ONNX model on-CPU via @mycelium/embed, with zero API dependency, but is never chosen automatically -- opt in explicitly if you want note content to never leave the machine."
+              },
+              "baseUrl": {
+                "type": "string",
+                "description": "Base URL of an OpenAI-compatible embeddings endpoint, e.g. \"https://openrouter.ai/api/v1\". Required when provider is \"openai-compatible\" (the default); unused for \"local\"."
               },
               "apiKey": {
                 "type": ["string", "object"],
-                "description": "Gemini API key used to embed note content and search queries for semantic search, as a plain string or a SecretRef object. Required for semantic search to do anything -- `text`/`code` note content is sent to Google's Gemini API to embed it. Without this, trilium_search_notes silently stays lexical/attribute-only."
+                "description": "API key for the embedding endpoint, as a plain string or a SecretRef object. Required for semantic search to do anything with the default openai-compatible provider -- note content is sent to that endpoint to embed it. Without this (and no provider: \"local\"), trilium_search_notes silently stays lexical/attribute-only."
+              },
+              "model": {
+                "type": "string",
+                "description": "Embedding model id. Required for the openai-compatible provider (models vary by endpoint, so there's no universal default); optional for \"local\" (defaults to a small bundled ONNX model)."
+              },
+              "dimensions": {
+                "type": "integer",
+                "description": "Embedding vector width, must match what the configured model actually produces. Required for the openai-compatible provider; optional for \"local\" (defaults to 384, matching its default model)."
               }
             }
           }

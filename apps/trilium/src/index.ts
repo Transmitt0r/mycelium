@@ -69,20 +69,56 @@ const configSchema = Type.Object({
             "never needs its own backup strategy beyond copying this one file.",
         }),
       ),
+      // Powered by @mycelium/embed -- any OpenAI-compatible /v1/embeddings
+      // endpoint (OpenAI, OpenRouter, Ollama, vLLM, LM Studio, ...), or an
+      // opt-in local CPU model. Without baseUrl+apiKey+model+dimensions (or
+      // provider: "local"), the semantic index simply never comes up and
+      // trilium_search_notes stays lexical/attribute-only (fail open), same
+      // as any other unavailable-backend case.
       embedding: Type.Optional(
         Type.Object({
-          modelPath: Type.Optional(
-            Type.String({
-              description: "Gemini embeddings model id to use. Defaults to gemini-embedding-2.",
+          provider: Type.Optional(
+            Type.Union([Type.Literal("openai-compatible"), Type.Literal("local")], {
+              description:
+                'Embedding backend to use. Defaults to "openai-compatible". "local" runs a small ' +
+                "ONNX model on-CPU via @mycelium/embed, with zero API dependency, but is never " +
+                "chosen automatically -- opt in explicitly if you want note content to never leave " +
+                "the machine.",
             }),
           ),
+          baseUrl: Type.Optional(
+            Type.String({
+              description:
+                'Base URL of an OpenAI-compatible embeddings endpoint, e.g. "https://openrouter.ai/api/v1". ' +
+                'Required when provider is "openai-compatible" (the default); unused for "local".',
+            }),
+          ),
+          // Same SecretRef-or-plain-string shape as the top-level apiToken
+          // above, resolved the same way (see resolveApiKey in
+          // src/semantic/handle.ts).
           apiKey: Type.Optional(
             Type.Union([Type.String(), Type.Object({}, { additionalProperties: true })], {
               description:
-                "Gemini API key used to embed note content and search queries for semantic search, as " +
-                "a plain string or a SecretRef object. Required for semantic search to do anything -- " +
-                "`text`/`code` note content is sent to Google's Gemini API to embed it. Without this, " +
-                "trilium_search_notes silently stays lexical/attribute-only.",
+                "API key for the embedding endpoint, as a plain string or a SecretRef object. " +
+                "Required for semantic search to do anything with the default openai-compatible " +
+                "provider -- note content is sent to that endpoint to embed it. Without this (and no " +
+                'provider: "local"), trilium_search_notes silently stays lexical/attribute-only.',
+            }),
+          ),
+          model: Type.Optional(
+            Type.String({
+              description:
+                "Embedding model id. Required for the openai-compatible provider (models vary by " +
+                'endpoint, so there\'s no universal default); optional for "local" (defaults to a ' +
+                "small bundled ONNX model).",
+            }),
+          ),
+          dimensions: Type.Optional(
+            Type.Integer({
+              description:
+                "Embedding vector width, must match what the configured model actually produces. " +
+                'Required for the openai-compatible provider; optional for "local" (defaults to 384, ' +
+                "matching its default model).",
             }),
           ),
         }),

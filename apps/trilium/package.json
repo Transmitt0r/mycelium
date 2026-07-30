@@ -53,6 +53,8 @@
     "openclaw": ">=2026.7.0"
   },
   "dependencies": {
+    "@mycelium/embed": "workspace:*",
+    "@mycelium/index": "workspace:*",
     "marked": "^18.0.7",
     "node-html-markdown": "^2.0.0",
     "openapi-fetch": "^0.17.0",
