@@ -22,46 +22,16 @@
  * Usage: pnpm run generate:types -- v0.104.1
  * (defaults to the version below if no tag is given)
  */
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { curlToFile, generateTypes } from "@mycelium/openapi-codegen";
 
 const DEFAULT_TAG = "v0.104.1";
 const tag = process.argv[2] ?? DEFAULT_TAG;
 
 const specUrl = `https://raw.githubusercontent.com/TriliumNext/Trilium/${tag}/apps/server/src/assets/etapi.openapi.yaml`;
 
-const tmpDir = mkdtempSync(join(tmpdir(), "trilium-schema-"));
-const specPath = join(tmpDir, "etapi.openapi.yaml");
-
-// Fetched with `curl` rather than `fetch()` for the same reason as
-// paperless-ngx's generate-types.ts: macOS's per-binary Local Network TCC
-// entitlement silently blocks bare node/python3 hitting LAN IPs, though
-// that doesn't apply here since this is a public GitHub URL -- kept
-// consistent with the sibling plugin's script anyway since there's no
-// downside to it.
-const curlResult = spawnSync("curl", ["-fsSL", specUrl, "-o", specPath], { stdio: "inherit" });
-
-if (curlResult.status !== 0) {
-  rmSync(tmpDir, { recursive: true, force: true });
-  console.error(`Failed to fetch ETAPI spec from ${specUrl}`);
-  console.error("Check that the tag exists: https://github.com/TriliumNext/Notes/tags");
-  process.exit(curlResult.status ?? 1);
-}
-
-const outPath = "src/generated/trilium-schema.d.ts";
-// Same isolated-pnpm-dlx-resolution reasoning as paperless-ngx's script:
-// openapi-typescript's codegen only supports typescript ^5.x, while this
-// project builds against the latest TypeScript major.
-const result = spawnSync("pnpm", ["dlx", "openapi-typescript", specPath, "-o", outPath], {
-  stdio: "inherit",
+generateTypes({
+  outPath: "src/generated/trilium-schema.d.ts",
+  fetchSchema: (tmpDir) => curlToFile(tmpDir, "etapi.openapi.yaml", ["-fsSL", specUrl]),
 });
 
-rmSync(tmpDir, { recursive: true, force: true });
-
-if (result.status !== 0) {
-  process.exit(result.status ?? 1);
-}
-
-console.log(`Wrote ${outPath} from ${tag}`);
+console.log(`(generated from tag ${tag})`);

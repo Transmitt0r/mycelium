@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { describe, expect, test } from "vitest";
 import { createMcpServer } from "./bridge.js";
 import type { BridgeableTool } from "./index.js";
 

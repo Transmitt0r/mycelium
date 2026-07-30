@@ -4,41 +4,22 @@
 
 ## Layout
 
-- `packages/embed` — pluggable embedding/chat client (any OpenAI-compatible endpoint + opt-in local CPU fallback)
-- `packages/index` — local-first semantic index (sqlite-vec store, incremental sync, hybrid RRF search)
-- `packages/mcp` — bridges agent-tool factories onto a standalone MCP server (stdio + Streamable HTTP)
-- `packages/tooling-config` — shared biome/tsconfig presets for this repo and the standalone plugin repos (paperless-ngx, trilium, 1password)
-- `tsconfig.json` — root project-references graph; `tsconfig.base.json` — shared compiler options
-- Bun workspaces (`package.json`'s `workspaces` field), not pnpm. The single-package plugin repos stay on pnpm/vitest; don't try to unify those.
+- `packages/embed`, `packages/index`, `packages/mcp` — the published `@mycelium/*` packages.
+- `packages/tooling-config` — shared biome/tsconfig presets, self-hosted by this repo's own root config (not just published for external use).
+- `packages/paperless-ngx`, `packages/trilium`, `packages/onepassword` — the OpenClaw plugins this toolkit was extracted from, merged into this repo via `git subtree` (full history preserved) so they can consume `@mycelium/*` as `workspace:*` dependencies. Each still publishes to npm independently under its own name (`@transmitt0r/openclaw-plugin-*`).
+- `tools/openapi-codegen` — shared, unpublished (`"private": true`) logic for regenerating a package's `src/generated/*.d.ts` from a fetched OpenAPI schema. Consumed by paperless-ngx's and trilium's own `scripts/generate-types.ts`.
+- Root `tsconfig.json`'s project references cover only `@mycelium/embed`/`index`/`mcp` — the plugin packages and `tools/openapi-codegen` build independently (plain `tsc`, not `tsc -b`).
 
 ## Working in this repo
 
-- Run `bun install`, `bun run build`, `bun run typecheck`, `bun run lint`, `bun test` before committing.
-- `packages/index` also has `bun run test:integration` (run from within that package), which runs under plain **Node**, not Bun — its sqlite-vec backing needs `node:sqlite`'s extension-loading support, which Bun's bundled sqlite3 build doesn't have. It exercises the built `dist/` output, so `bun run build` must happen first. CI runs both.
-- Versioning/publishing goes through [Changesets](https://github.com/changesets/changesets), not semantic-release — this is a multi-package repo with independent per-package versions, and Changesets is what most TS monorepos in this space use. Run `bun run changeset` to record a change before opening a PR; the release workflow opens a "Version Packages" PR and publishes on merge.
-- Never hand-edit a package's `version` — Changesets owns it.
-- `@mycelium/embed`'s local-CPU embedding fallback must stay **opt-in**, never a silent default. A prior in-process local-inference attempt in a sibling plugin (paperless-ngx) got OOM-killed in production on a memory-constrained host — see that repo's `src/semantic/embedding-provider.ts` history before changing this default.
-- A brand-new package's first npm publish needs npm trusted publishing configured manually on npmjs.com first (see `.github/workflows/release.yml`'s comment) — that's a one-time bootstrap step per package, not something to route around in CI.
+- `pnpm install` / `build` / `typecheck` / `lint` / `test` at the root fan out across every workspace package (`pnpm -r --if-present run <script>`) — one set of commands for everything.
+- **Node only, not Bun.** OpenClaw (the host every plugin here runs inside) only supports Node — see its own `package.json` `engines`/`bin`. `@mycelium/index`'s sqlite-vec store needs `node:sqlite`, which doesn't exist under Bun. Don't reintroduce Bun tooling here.
+- Two independent release flows coexist: `@mycelium/*` packages use [Changesets](https://github.com/changesets/changesets) (`pnpm run changeset` before a PR; never hand-edit their `version`). The three plugin packages keep their own pre-existing `semantic-release` + Conventional Commits flow, untouched by Changesets.
+- `@mycelium/embed`'s local-CPU embedding fallback must stay **opt-in**, never a silent default — a prior in-process local-inference attempt in `paperless-ngx` was OOM-killed in production on a memory-constrained host (see `packages/paperless-ngx/src/semantic/embedding-provider.ts`'s comments).
+- A `@mycelium/*` package's first npm publish is a manual, one-time bootstrap (npm trusted publishing must be configured on npmjs.com before CI can publish it) — see `.github/workflows/release.yml`'s comment.
 
-## Distribution targets across the ecosystem
+## Distribution targets
 
-Three release targets exist across this repo and its consuming plugin repos (paperless-ngx,
-trilium, 1password), but they don't apply uniformly — each package only ships to the targets
-that actually fit its shape:
-
-- **npmjs** — every `@mycelium/*` package here, via the Changesets release workflow above.
-  This is the only target that applies to this repo today.
-- **ClawHub** — only for actual OpenClaw plugins (an `openclaw.plugin.json` manifest,
-  `openclaw.compat.pluginApi`/`openclaw.build.openclawVersion` in package.json, a real
-  `register()` entrypoint). None of the `@mycelium/*` packages qualify — `@mycelium/mcp`
-  specifically exists so tools work *without* OpenClaw, so it can never become a
-  `code-plugin`. ClawHub publishing belongs to the sibling plugin repos, once they exist as
-  standalone MCP servers built on `@mycelium/mcp`.
-- **Docker** — only makes sense once there's a real deployable to containerize: an MCP
-  server with actual tools (`createMcpServer(realTools, ...)` + `serveHttp`/`serveStdio`).
-  `@mycelium/mcp` alone has no tools of its own — it's the bridge, not a server. This
-  belongs to the plugin repos too, built the day `@mycelium/mcp` actually gets wired into
-  one of them.
-
-Don't try to force ClawHub or Docker onto this repo before that integration happens — there's
-nothing valid to publish or containerize yet.
+- **npmjs** — every package here, independently (Changesets for `@mycelium/*`, `semantic-release` for the plugins).
+- **ClawHub** — the three plugins only. `@mycelium/*` packages can't qualify: `@mycelium/mcp` exists specifically so tools work *without* OpenClaw.
+- **Docker** — standalone MCP servers built on `@mycelium/mcp` with real tools wired in. Not built yet for any plugin — the next integration step is one of them adopting `@mycelium/mcp`/`@mycelium/index` in place of its own `src/semantic/` module.

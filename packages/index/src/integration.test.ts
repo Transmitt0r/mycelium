@@ -1,12 +1,11 @@
-// Runs under plain Node against the built dist/ output (not bun test) —
-// sqlite-vec's extension-loading needs node:sqlite, which Bun does not
-// implement. See src/host.ts.
-import assert from "node:assert/strict";
+// Real sqlite-vec, real node:sqlite -- no fake/mock store here, since the
+// whole point of this suite is exercising openSemanticIndex end to end
+// (sync + search + identity-drift rebuild) against the real thing.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, test } from "node:test";
-import { openSemanticIndex } from "../dist/index.js";
+import { afterEach, describe, expect, test } from "vitest";
+import { openSemanticIndex, type SemanticIndex, type SourceAdapter } from "./index.js";
 
 // Deterministic fake: a 4-dim "embedding" derived from character codes, so
 // texts sharing more characters score more similar without needing a real model.
@@ -15,16 +14,16 @@ function fakeEmbeddingProvider({ id = "fake", model = "fake-model", dimensions =
     id,
     model,
     dimensions,
-    async embedQuery(text) {
+    async embedQuery(text: string) {
       return embed(text, dimensions);
     },
-    async embedBatch(texts) {
+    async embedBatch(texts: string[]) {
       return texts.map((text) => embed(text, dimensions));
     },
   };
 }
 
-function embed(text, dimensions) {
+function embed(text: string, dimensions: number): number[] {
   const vec = new Array(dimensions).fill(0);
   for (let i = 0; i < text.length; i++) {
     vec[text.charCodeAt(i) % dimensions] += 1;
@@ -33,7 +32,9 @@ function embed(text, dimensions) {
   return vec.map((v) => v / norm);
 }
 
-function fakeAdapter(items) {
+type FakeItem = { id: number; contentHash: string; modifiedAt: string; content: string };
+
+function fakeAdapter(items: FakeItem[]): SourceAdapter<number> {
   return {
     name: "fake",
     async *listChanged(since) {
@@ -53,12 +54,12 @@ function fakeAdapter(items) {
   };
 }
 
-const openHandles = [];
+const openHandles: SemanticIndex[] = [];
 afterEach(() => {
   for (const handle of openHandles.splice(0)) handle.close();
 });
 
-async function open(config = {}) {
+async function open(config: Partial<Parameters<typeof openSemanticIndex>[0]> = {}) {
   const result = await openSemanticIndex({
     embeddingProvider: fakeEmbeddingProvider(),
     dbPath: ":memory:",
@@ -68,13 +69,13 @@ async function open(config = {}) {
     maxItemsPerSync: 200,
     queryTimeoutMs: 3_000,
     ...config,
-  });
-  assert.equal(result.available, true, result.available ? "" : result.reason);
+  } as Parameters<typeof openSemanticIndex>[0]);
+  if (!result.available) throw new Error(`test setup failed: ${result.reason}`);
   openHandles.push(result.index);
   return result.index;
 }
 
-describe("openSemanticIndex + sync + search (Node, real sqlite-vec)", () => {
+describe("openSemanticIndex + sync + search (real sqlite-vec)", () => {
   test("syncs sources and finds the most relevant one by search term", async () => {
     const index = await open();
     const adapter = fakeAdapter([
@@ -99,53 +100,52 @@ describe("openSemanticIndex + sync + search (Node, real sqlite-vec)", () => {
     ]);
 
     const summary = await index.sync(adapter);
-    assert.equal(summary.processed, 3);
-    assert.equal(summary.failed, 0);
-    assert.equal(index.sourceCount(), 3);
+    expect(summary.processed).toBe(3);
+    expect(summary.failed).toBe(0);
+    expect(index.sourceCount()).toBe(3);
 
     const results = await index.search("orange", 5);
-    assert.ok(results.length > 0);
-    assert.ok(
-      results.some((r) => r.sourceId === "1" || r.sourceId === "3"),
-      "expected an orange-related source to match",
-    );
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.some((r) => r.sourceId === "1" || r.sourceId === "3")).toBe(true);
   });
 
   test("a second sync pass with no changes skips everything", async () => {
     const index = await open();
-    const items = [
+    const items: FakeItem[] = [
       { id: 1, contentHash: "h1", modifiedAt: "2026-01-01T00:00:00Z", content: "hello world" },
     ];
     const adapter = fakeAdapter(items);
 
     const first = await index.sync(adapter);
-    assert.equal(first.processed, 1);
+    expect(first.processed).toBe(1);
 
     const second = await index.sync(adapter);
-    assert.equal(second.processed, 0);
-    assert.equal(second.skippedUnchanged, 1);
+    expect(second.processed).toBe(0);
+    expect(second.skippedUnchanged).toBe(1);
   });
 
   test("a changed contentHash re-embeds the source", async () => {
     const index = await open();
-    const items = [
+    const items: FakeItem[] = [
       { id: 1, contentHash: "h1", modifiedAt: "2026-01-01T00:00:00Z", content: "version one" },
     ];
     const adapter = fakeAdapter(items);
     await index.sync(adapter);
 
-    items[0].contentHash = "h2";
-    items[0].modifiedAt = "2026-01-02T00:00:00Z";
-    items[0].content = "version two";
+    const [item] = items;
+    if (!item) throw new Error("test setup: expected one item");
+    item.contentHash = "h2";
+    item.modifiedAt = "2026-01-02T00:00:00Z";
+    item.content = "version two";
     const second = await index.sync(adapter);
-    assert.equal(second.processed, 1);
-    assert.equal(second.skippedUnchanged, 0);
+    expect(second.processed).toBe(1);
+    expect(second.skippedUnchanged).toBe(0);
   });
 
   test("search returns nothing before any sync, and fails open on an empty term", async () => {
     const index = await open();
-    assert.deepEqual(await index.search("anything", 5), []);
-    assert.deepEqual(await index.search(undefined, 5), []);
+    expect(await index.search("anything", 5)).toEqual([]);
+    expect(await index.search(undefined, 5)).toEqual([]);
   });
 
   test("reopening with a different embedding model rebuilds the index from scratch", async () => {
@@ -161,7 +161,7 @@ describe("openSemanticIndex + sync + search (Node, real sqlite-vec)", () => {
           { id: 1, contentHash: "h1", modifiedAt: "2026-01-01T00:00:00Z", content: "x" },
         ]),
       );
-      assert.equal(first.sourceCount(), 1);
+      expect(first.sourceCount()).toBe(1);
       first.close();
       openHandles.pop();
 
@@ -171,11 +171,7 @@ describe("openSemanticIndex + sync + search (Node, real sqlite-vec)", () => {
         dbPath,
         embeddingProvider: fakeEmbeddingProvider({ model: "model-b", dimensions: 4 }),
       });
-      assert.equal(
-        second.sourceCount(),
-        0,
-        "old vectors from model-a must not survive a model change",
-      );
+      expect(second.sourceCount()).toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

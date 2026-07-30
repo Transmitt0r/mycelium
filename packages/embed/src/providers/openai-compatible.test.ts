@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 import { createOpenAICompatibleEmbeddingProvider } from "./openai-compatible.js";
 
 function fakeEmbeddingsFetch(embeddingsByInput: (input: string) => number[]) {

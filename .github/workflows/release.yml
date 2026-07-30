@@ -22,28 +22,22 @@ jobs:
         with:
           fetch-depth: 0 # changesets needs full history to diff against the last release
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
+      - uses: pnpm/action-setup@v6
 
-      # @mycelium/index's sqlite-vec backing needs node:sqlite, which Bun
-      # doesn't implement — its integration test runs under Node.
       - uses: actions/setup-node@v7
         with:
-          node-version: "26"
+          node-version-file: .nvmrc
+          cache: pnpm
 
-      - run: bun install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
 
-      - run: bun run build
+      - run: pnpm run build
 
-      - run: bun run typecheck
+      - run: pnpm run typecheck
 
-      - run: bun run lint
+      - run: pnpm run lint
 
-      - run: bun test
-
-      - run: bun run test:integration
-        working-directory: packages/index
+      - run: pnpm run test
 
       # Trusted publishing requires npm CLI >=11.5.1; pin explicitly rather
       # than relying on whatever version ships with the runner.
@@ -54,7 +48,7 @@ jobs:
       # @mycelium/* package, pointing at this repo + workflow.
       - uses: changesets/action@v1
         with:
-          publish: bun run release
-          version: bun run version
+          publish: pnpm run release
+          version: pnpm run version
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

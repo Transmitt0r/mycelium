@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { afterEach, describe, expect, test } from "vitest";
 import { createMcpServer } from "./bridge.js";
 import type { BridgeableTool } from "./index.js";
 import { serveHttp } from "./serve.js";

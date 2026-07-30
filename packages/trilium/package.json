@@ -18,10 +18,10 @@
   "engines": {
     "node": "^20.0.0 || ^22.0.0 || >=24.0.0"
   },
-  "packageManager": "pnpm@11.13.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Transmitt0r/openclaw-plugin-trilium.git"
+    "url": "git+https://github.com/Transmitt0r/mycelium.git",
+    "directory": "packages/trilium"
   },
   "openclaw": {
     "extensions": [
@@ -60,6 +60,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
+    "@mycelium/openapi-codegen": "workspace:*",
     "@types/node": "^26.1.1",
     "openapi-typescript": "^7.13.0",
     "semantic-release": "^25.0.8",

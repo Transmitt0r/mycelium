@@ -12,26 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.14"
+      - uses: pnpm/action-setup@v6
 
-      # @mycelium/index's sqlite-vec backing needs node:sqlite, which Bun
-      # doesn't implement — its integration test runs under Node, everything
-      # else in this repo runs under Bun.
       - uses: actions/setup-node@v7
         with:
-          node-version: "26"
+          node-version-file: .nvmrc
+          cache: pnpm
 
-      - run: bun install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
 
-      - run: bun run build
+      - run: pnpm run build
 
-      - run: bun run typecheck
+      - run: pnpm run typecheck
 
-      - run: bun run lint
+      - run: pnpm run lint
 
-      - run: bun test
-
-      - run: bun run test:integration
-        working-directory: packages/index
+      - run: pnpm run test
