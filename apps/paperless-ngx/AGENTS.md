@@ -9,6 +9,11 @@
 - `src/tools/` — one file per tool group (documents, taxonomy, relations, pagination)
 - `src/client.ts` — typed paperless-ngx API client
 - `src/generated/paperless-schema.d.ts` — generated, do not hand-edit (see CONTRIBUTING.md)
+- `src/semantic/` — wires `@mycelium/embed` (pluggable embedding provider) and `@mycelium/index`
+  (the actual store/sync/search engine) together for this plugin; `source-adapter.ts` is the only
+  paperless-specific piece (implements `@mycelium/index`'s `SourceAdapter`). Don't reintroduce a
+  local sqlite-vec/embedding-provider implementation here — that duplication is exactly what got
+  extracted into `@mycelium/*`.
 - `skills/` — OpenClaw agent skills bundled with the plugin
 - `*.test.ts` — colocated with the source they test
 

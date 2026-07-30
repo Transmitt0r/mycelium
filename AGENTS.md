@@ -15,11 +15,11 @@ Three top-level categories, all pnpm workspace packages:
 - `pnpm install` / `build` / `typecheck` / `lint` / `test` at the root fan out across every workspace package (`pnpm -r --if-present run <script>`) — one set of commands for everything.
 - **Node only, not Bun.** OpenClaw (the host every `apps/*` plugin runs inside) only supports Node — see its own `package.json` `engines`/`bin`. `@mycelium/index`'s sqlite-vec store needs `node:sqlite`, which doesn't exist under Bun. Don't reintroduce Bun tooling here.
 - `@mycelium/*` packages version via [Changesets](https://github.com/changesets/changesets) (`pnpm run changeset` before a PR; never hand-edit their `version`). `apps/*` are in `.changeset/config.json`'s `ignore` list — they're versioned by their own `semantic-release`, not Changesets.
-- `@mycelium/embed`'s local-CPU embedding fallback must stay **opt-in**, never a silent default — a prior in-process local-inference attempt in `apps/paperless-ngx` was OOM-killed in production on a memory-constrained host (see that package's `src/semantic/embedding-provider.ts` comments).
+- `@mycelium/embed`'s local-CPU embedding fallback must stay **opt-in**, never a silent default — a prior in-process local-inference attempt (node-llama-cpp, in what's now `apps/paperless-ngx`) was OOM-killed in production on a memory-constrained host (~376MB free RAM, no swap). A remote OpenAI-compatible endpoint has no local memory footprint beyond the request/response payload; local inference should stay something a host opts into deliberately, not something enabled by default.
 - A `@mycelium/*` package's first npm publish is a manual, one-time bootstrap (npm trusted publishing must be configured on npmjs.com before CI can publish it) — see `.github/workflows/release.yml`'s comment.
 
 ## Distribution targets
 
 - **npmjs** — every package here, independently (Changesets for `core/*`+`tools/*`, `semantic-release` for `apps/*`).
 - **ClawHub** — `apps/*` only. `core/*`/`tools/*` can't qualify: `@mycelium/mcp` exists specifically so tools work *without* OpenClaw.
-- **Docker** — standalone MCP servers built on `@mycelium/mcp` with real tools wired in. Not built yet for any app — the next integration step is one of them adopting `@mycelium/mcp`/`@mycelium/index` in place of its own `src/semantic/` module.
+- **Docker** — standalone MCP servers built on `@mycelium/mcp` with real tools wired in. Not built yet for any app — `apps/paperless-ngx` has adopted `@mycelium/embed`/`@mycelium/index` (its `src/semantic/` module now wires those together instead of duplicating them; `apps/trilium` hasn't yet), but nothing has adopted `@mycelium/mcp` yet.

@@ -51,10 +51,11 @@ describe("createSemanticSearchHandle", () => {
     ).resolves.toBeDefined();
   });
 
-  it("resolves to an unavailable handle when no embedding.apiKey is configured", async () => {
-    // Without a key there's nothing the Gemini-backed embedding provider
-    // can do -- this is the "no external service will ever see your OCR
-    // content unless you opt in" fail-open path the README documents.
+  it("resolves to an unavailable handle when embedding config is incomplete", async () => {
+    // Without baseUrl/apiKey/model/dimensions there's nothing the
+    // openai-compatible embedding provider can do -- this is the "no
+    // external service will ever see your OCR content unless you opt in"
+    // fail-open path the README documents.
     const handle = await createSemanticSearchHandle(
       fakeApi({ baseUrl: "x", apiToken: "t", semanticSearch: { indexPath: ":memory:" } }),
       fakeClientHandlePromise(),
@@ -64,23 +65,28 @@ describe("createSemanticSearchHandle", () => {
     await handle.dispose();
   });
 
-  it("opens a real (in-memory) index and reports available: true given an apiKey", async () => {
+  it("opens a real (in-memory) index and reports available: true given a full openai-compatible config", async () => {
     const handle = await createSemanticSearchHandle(
       fakeApi({
         baseUrl: "x",
         apiToken: "t",
-        semanticSearch: { indexPath: ":memory:", embedding: { apiKey: "test-gemini-key" } },
+        semanticSearch: {
+          indexPath: ":memory:",
+          embedding: {
+            baseUrl: "https://example.test/v1",
+            apiKey: "test-key",
+            model: "text-embedding-test",
+            dimensions: 8,
+          },
+        },
       }),
       fakeClientHandlePromise(),
     );
-    // node:sqlite + sqlite-vec are both available in this test environment
-    // (verified directly in store.test.ts), so the index itself should
-    // come up. This never makes a real Gemini API call: search(undefined)
-    // no-ops before ever reaching the embedding provider (see
-    // search.test.ts's own no-op-on-empty-term coverage), and no sync pass
-    // is awaited here -- a real embed call is intentionally only exercised
-    // through embedding-provider.test.ts's stubbed fetch, never a real
-    // network request in this test suite.
+    // node:sqlite + sqlite-vec are both available in this test environment,
+    // so the index itself should come up. This never makes a real network
+    // call: search(undefined) no-ops before ever reaching the embedding
+    // provider (see @mycelium/index's own no-op-on-empty-term coverage),
+    // and no sync pass is awaited here.
     expect(handle.available).toBe(true);
     expect(await handle.search(undefined, 5)).toEqual([]);
     await handle.dispose();

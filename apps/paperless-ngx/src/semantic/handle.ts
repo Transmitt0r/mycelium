@@ -1,26 +1,44 @@
 import os from "node:os";
 import path from "node:path";
+import {
+  createEmbeddingProvider,
+  type EmbeddingProvider,
+  type EmbeddingProviderConfig,
+} from "@mycelium/embed";
+import {
+  DEFAULT_SEMANTIC_INDEX_CONFIG,
+  openSemanticIndex,
+  type SemanticIndex,
+} from "@mycelium/index";
 import type { OpenClawPluginApi, PluginLogger } from "openclaw/plugin-sdk/plugin-entry";
 import { isSecretRef } from "openclaw/plugin-sdk/secret-input";
 import { resolveSecretRefValues } from "openclaw/plugin-sdk/secret-ref-runtime";
 import type { PaperlessClientHandle } from "../client.js";
-import { EMBEDDING_PROVIDER_ID, EmbeddingProviderHandle } from "./embedding-provider.js";
-import { searchSemantic } from "./search.js";
-import { SemanticIndexStore } from "./store.js";
-import { runIncrementalSync } from "./sync.js";
-import type { IndexIdentity, SemanticMatch, SemanticSearchConfig } from "./types.js";
-import { DEFAULT_SEMANTIC_SEARCH_CONFIG, identitiesMatch } from "./types.js";
+import { createPaperlessSourceAdapter } from "./source-adapter.js";
+import type { SemanticMatch } from "./types.js";
+
+// How often a background incremental sync pass runs. Not part of
+// @mycelium/index's own config surface -- it doesn't manage scheduling
+// itself, the host does.
+const SYNC_INTERVAL_MS = 15 * 60_000;
 
 export type SemanticSearchPluginConfig = {
   enabled?: boolean;
   indexPath?: string;
-  // Gemini's embeddings API is called directly over HTTP -- these only
-  // tune which model/key to use, not a provider/registry choice.
   embedding?: {
-    modelPath?: string;
+    // "local" is opt-in only -- never the silent default. A prior in-process
+    // local-inference attempt (node-llama-cpp) was OOM-killed in production
+    // on a memory-constrained host; see AGENTS.md.
+    provider?: "openai-compatible" | "local";
+    // Required for provider "openai-compatible" (any OpenAI-compatible
+    // /v1/embeddings endpoint -- OpenAI, OpenRouter, Ollama, vLLM, LM
+    // Studio, ...). Unused for "local".
+    baseUrl?: string;
     // Plain string or a SecretRef object, same shape/resolution path as
     // index.ts's top-level apiToken -- see resolveApiKey below.
     apiKey?: unknown;
+    model?: string;
+    dimensions?: number;
   };
 };
 
@@ -42,7 +60,7 @@ async function resolveApiKey(api: OpenClawPluginApi, value: unknown): Promise<st
 
 export type SemanticSearchHandle = {
   // False whenever the semantic backend couldn't come up for any reason
-  // (disabled by config, no embedding.apiKey configured, Node runtime
+  // (disabled by config, embedding not fully configured, Node runtime
   // without node:sqlite, sqlite-vec failed to load, ...). `search` still
   // exists and is always safe to call -- it just always resolves to `[]`,
   // which is exactly the pre-existing stub behavior
@@ -60,35 +78,55 @@ function unavailableHandle(): SemanticSearchHandle {
   };
 }
 
-function resolveConfig(raw: SemanticSearchPluginConfig | undefined): SemanticSearchConfig {
-  const indexPath =
-    raw?.indexPath ??
-    path.join(os.homedir(), ".openclaw", "plugins", "paperless-ngx", "semantic-index.db");
-  return {
-    ...DEFAULT_SEMANTIC_SEARCH_CONFIG,
-    enabled: raw?.enabled ?? DEFAULT_SEMANTIC_SEARCH_CONFIG.enabled,
-    indexPath,
-    model: raw?.embedding?.modelPath ?? DEFAULT_SEMANTIC_SEARCH_CONFIG.model,
-  };
+function defaultIndexPath(): string {
+  return path.join(os.homedir(), ".openclaw", "plugins", "paperless-ngx", "semantic-index.db");
 }
 
-function candidateIdentity(config: SemanticSearchConfig): IndexIdentity {
-  return {
-    providerId: EMBEDDING_PROVIDER_ID,
-    model: config.model,
-    dimensions: config.dimensions,
-    chunkTokens: config.chunkTokens,
-    chunkOverlap: config.chunkOverlap,
+// Resolves the configured embedding provider, or undefined (with a warning
+// already logged) if there isn't enough config to build one -- never
+// throws, since a missing/incomplete embedding config is exactly the
+// "stay lexical-only" case, not a plugin-registration failure.
+async function resolveEmbeddingProvider(
+  api: OpenClawPluginApi,
+  raw: SemanticSearchPluginConfig["embedding"],
+  logger: PluginLogger,
+): Promise<EmbeddingProvider | undefined> {
+  const provider = raw?.provider ?? "openai-compatible";
+
+  if (provider === "local") {
+    return createEmbeddingProvider({
+      provider: "local",
+      model: raw?.model,
+      dimensions: raw?.dimensions,
+    });
+  }
+
+  const apiKey = await resolveApiKey(api, raw?.apiKey);
+  if (!apiKey || !raw?.baseUrl || !raw?.model || !raw?.dimensions) {
+    logger.warn(
+      "semantic search: embedding.baseUrl/apiKey/model/dimensions must all be configured for " +
+        'the "openai-compatible" provider (or set embedding.provider to "local"), falling back ' +
+        "to lexical-only search",
+    );
+    return undefined;
+  }
+
+  const config: EmbeddingProviderConfig = {
+    provider: "openai-compatible",
+    baseUrl: raw.baseUrl,
+    apiKey,
+    model: raw.model,
+    dimensions: raw.dimensions,
   };
+  return createEmbeddingProvider(config);
 }
 
 // Builds the semantic-search backend the same way index.ts builds the
 // paperless client handle: register() stays synchronous, this kicks off
 // async setup without awaiting it, and hands back a promise every tool
 // execute() can await once and reuse. `clientHandlePromise` is the same
-// promise threaded into the paperless tools -- sync needs the paperless
-// client too, so setup here waits on it internally rather than duplicating
-// client construction.
+// promise threaded into the paperless tools -- the source adapter awaits it
+// internally rather than duplicating client construction.
 export function createSemanticSearchHandle(
   api: OpenClawPluginApi,
   clientHandlePromise: Promise<PaperlessClientHandle>,
@@ -96,7 +134,6 @@ export function createSemanticSearchHandle(
   const rawConfig = (
     api.pluginConfig as { semanticSearch?: SemanticSearchPluginConfig } | undefined
   )?.semanticSearch;
-  const config = resolveConfig(rawConfig);
   // Falls back to a no-op logger rather than assuming api.logger is always
   // set -- register() must never throw or produce an unhandled rejection
   // just because logging is unavailable in whatever hosted this plugin.
@@ -106,98 +143,56 @@ export function createSemanticSearchHandle(
     error: () => {},
   };
 
-  if (!config.enabled) {
+  if (rawConfig?.enabled === false) {
     return Promise.resolve(unavailableHandle());
   }
 
-  return setup(api, clientHandlePromise, config, rawConfig?.embedding?.apiKey, logger).catch(
-    (err) => {
-      logger.warn(
-        `semantic search: setup failed, falling back to lexical-only search: ${describe(err)}`,
-      );
-      return unavailableHandle();
-    },
-  );
+  return setup(api, clientHandlePromise, rawConfig, logger).catch((err) => {
+    logger.warn(
+      `semantic search: setup failed, falling back to lexical-only search: ${describe(err)}`,
+    );
+    return unavailableHandle();
+  });
 }
 
 async function setup(
   api: OpenClawPluginApi,
   clientHandlePromise: Promise<PaperlessClientHandle>,
-  config: SemanticSearchConfig,
-  rawApiKey: unknown,
+  rawConfig: SemanticSearchPluginConfig | undefined,
   logger: PluginLogger,
 ): Promise<SemanticSearchHandle> {
-  // Checked before touching the filesystem at all: without a key there's
-  // nothing this backend can do, so there's no reason to create the index
-  // file/directory for a user who hasn't configured Gemini access yet.
-  const apiKey = await resolveApiKey(api, rawApiKey);
-  if (!apiKey) {
+  const embeddingProvider = await resolveEmbeddingProvider(api, rawConfig?.embedding, logger);
+  if (!embeddingProvider) return unavailableHandle();
+
+  const result = await openSemanticIndex({
+    embeddingProvider,
+    dbPath: rawConfig?.indexPath ?? defaultIndexPath(),
+    ...DEFAULT_SEMANTIC_INDEX_CONFIG,
+  });
+  if (!result.available) {
     logger.warn(
-      "semantic search: no semanticSearch.embedding.apiKey configured, falling back to lexical-only search",
+      `semantic search: index unavailable, falling back to lexical-only search: ${result.reason}`,
     );
     return unavailableHandle();
   }
 
-  const opened = await SemanticIndexStore.open(config.indexPath, config.dimensions);
-  if (!opened.available) {
-    logger.warn(
-      `semantic search: index unavailable, falling back to lexical-only search: ${opened.reason}`,
-    );
-    return unavailableHandle();
-  }
-  const { store } = opened;
-
-  // From here on, a thrown error must still close the already-open store
-  // before propagating -- otherwise the outer .catch() in
-  // createSemanticSearchHandle falls back to unavailableHandle() (a no-op
-  // dispose()) and the open SQLite handle/lock is never released.
-  try {
-    return setupWithOpenStore(store, config, apiKey, clientHandlePromise, api, logger);
-  } catch (err) {
-    store.close();
-    throw err;
-  }
+  return setupWithOpenIndex(result.index, clientHandlePromise, api, logger);
 }
 
-function setupWithOpenStore(
-  store: SemanticIndexStore,
-  config: SemanticSearchConfig,
-  apiKey: string,
+function setupWithOpenIndex(
+  index: SemanticIndex,
   clientHandlePromise: Promise<PaperlessClientHandle>,
   api: OpenClawPluginApi,
   logger: PluginLogger,
 ): SemanticSearchHandle {
-  const embeddingProvider = new EmbeddingProviderHandle({
-    apiKey,
-    model: config.model,
-    dimensions: config.dimensions,
-    logger,
-  });
-
-  const identity = candidateIdentity(config);
-  const storedIdentity = store.getIdentity();
-  if (!storedIdentity || !identitiesMatch(storedIdentity, identity)) {
-    logger.info?.(
-      storedIdentity
-        ? "semantic search: embedding/chunking config changed, rebuilding index from scratch"
-        : "semantic search: no existing index, starting a fresh backfill",
-    );
-    store.rebuild(identity);
-  }
+  const adapter = createPaperlessSourceAdapter(clientHandlePromise.then((h) => h.client));
 
   let syncInFlight = false;
   const runSyncPass = async () => {
     if (syncInFlight) return;
     syncInFlight = true;
     try {
-      const { client } = await clientHandlePromise;
-      const summary = await runIncrementalSync({
-        client,
-        store,
-        embeddingProvider,
-        config,
-        logger,
-      });
+      const summary = await index.sync(adapter, logger);
       logger.info?.(
         `semantic search: sync pass complete (processed=${summary.processed}, ` +
           `skipped=${summary.skippedUnchanged}, failed=${summary.failed})`,
@@ -215,7 +210,7 @@ function setupWithOpenStore(
   // lexical-only behavior this replaces.
   void runSyncPass();
 
-  const interval = setInterval(() => void runSyncPass(), config.syncIntervalMs);
+  const interval = setInterval(() => void runSyncPass(), SYNC_INTERVAL_MS);
   interval.unref?.();
 
   let disposed = false;
@@ -223,24 +218,27 @@ function setupWithOpenStore(
     if (disposed) return;
     disposed = true;
     clearInterval(interval);
-    await embeddingProvider.dispose();
-    store.close();
+    index.close();
   };
 
   api.lifecycle.registerRuntimeLifecycle({
     id: "paperless-ngx-semantic-search",
-    description: "Closes the semantic search index and unloads the embedding provider on shutdown.",
+    description: "Closes the semantic search index on shutdown.",
     cleanup: () => dispose(),
   });
 
   return {
     available: true,
-    search: (searchTerm, limit) =>
-      searchSemantic(
-        { store, embeddingProvider, queryTimeoutMs: config.queryTimeoutMs, logger },
-        searchTerm,
-        limit,
-      ),
+    search: async (searchTerm, limit) => {
+      const matches = await index.search(searchTerm, limit, logger);
+      return matches.map((match) => ({
+        documentId: Number(match.sourceId),
+        snippet: match.snippet,
+        score: match.score,
+        startLine: match.startLine,
+        endLine: match.endLine,
+      }));
+    },
     dispose,
   };
 }

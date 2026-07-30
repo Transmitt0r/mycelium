@@ -69,13 +69,17 @@ There's deliberately no delete tool in this first pass.
 also finds a document whose text only ever says "Kfz-Haftpflichtversicherung". This happens
 automatically inside the existing `search` param; there's no separate tool or mode to choose.
 
-This requires an API key and sends data off your machine: document OCR content and your search
-terms are sent to Google's Gemini API to be embedded. **Without a `semanticSearch.embedding.apiKey`
-configured, this stays off automatically** — `paperless_search_documents` silently falls back to
-today's keyword-only (lexical) behavior, the same way it fails open if Gemini is unreachable, rate
-limits you, or errors for any other reason.
+This needs an embedding provider configured, and by default sends data off your machine: document
+OCR content and your search terms are sent to whatever endpoint you configure to be embedded.
+**Without `semanticSearch.embedding` fully configured, this stays off automatically** —
+`paperless_search_documents` silently falls back to today's keyword-only (lexical) behavior, the
+same way it fails open if the embedding endpoint is unreachable, rate limits you, or errors for any
+other reason.
 
-To turn it on, set an API key ([Google AI Studio](https://aistudio.google.com/apikey)):
+Powered by [`@mycelium/embed`](https://www.npmjs.com/package/@mycelium/embed): any OpenAI-compatible
+`/v1/embeddings` endpoint works — OpenAI, [OpenRouter](https://openrouter.ai), Ollama, vLLM, LM
+Studio, and so on. `baseUrl`, `apiKey`, `model`, and `dimensions` are all required (models vary by
+endpoint, so there's no universal default to fall back to):
 
 ```json
 {
@@ -85,7 +89,10 @@ To turn it on, set an API key ([Google AI Studio](https://aistudio.google.com/ap
         "config": {
           "semanticSearch": {
             "embedding": {
-              "apiKey": "your-gemini-api-key"
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "apiKey": "your-api-key",
+              "model": "text-embedding-3-small",
+              "dimensions": 1536
             }
           }
         }
@@ -95,8 +102,14 @@ To turn it on, set an API key ([Google AI Studio](https://aistudio.google.com/ap
 }
 ```
 
+Or run entirely on-CPU with zero API calls, opt in explicitly with `"provider": "local"`
+(`baseUrl`/`apiKey` aren't needed there — `model`/`dimensions` default to a small bundled ONNX
+model). This is never chosen automatically: an earlier in-process local-inference attempt got
+OOM-killed in production on a memory-constrained host, so treat it as something to enable
+deliberately on a box with enough headroom, not a drop-in default.
+
 `semanticSearch.embedding.apiKey` accepts a [SecretRef](https://docs.openclaw.ai/cli/config) too,
-same as `apiToken` above. Once a key is set, the index builds up in the background; to turn it back
+same as `apiToken` above. Once configured, the index builds up in the background; to turn it back
 off or move where its local index file lives:
 
 ```json
