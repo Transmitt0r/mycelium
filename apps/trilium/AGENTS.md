@@ -16,6 +16,18 @@
   Trilium's query-language operators out of a `search` string before anything gets embedded. Don't
   reintroduce a local sqlite-vec/embedding-provider implementation here — that duplication is
   exactly what got extracted into `@mycelium/*`.
+- `src/semantic/handle.ts` (`createSemanticSearchCore`) has **zero `openclaw` imports, not even type
+  imports** — verified by `pnpm run build` then `grep -rln 'from "openclaw' dist/` (should only ever
+  print `dist/index.js` and `dist/semantic/handle-openclaw.js`). `src/semantic/handle-openclaw.ts` is
+  the thin adapter translating `OpenClawPluginApi` into `handle.ts`'s host-agnostic
+  `SemanticSearchHostDeps`; `index.ts` imports the adapter, `src/mcp-server.ts` imports `handle.ts`
+  directly. If you add an `api.*` read to make semantic search do something new, it goes in
+  `handle-openclaw.ts`, never in `handle.ts` — that's what keeps `openclaw` out of the standalone
+  server's dependency tree (see `peerDependenciesMeta.openclaw.optional` in `package.json`).
+- `src/mcp-server.ts` — standalone MCP server entrypoint on `@mycelium/mcp` (stdio/HTTP), configured
+  via env vars instead of `openclaw.json` (see README's "Standalone MCP server" section). Tool
+  factories (`src/tools/*.ts`) are reused unmodified from the OpenClaw plugin path — they were never
+  OpenClaw-coupled to begin with. `src/mcp-server-config.ts` holds the (tested) env-var parsing.
 - `skills/` — OpenClaw agent skills bundled with the plugin
 - `*.test.ts` — colocated with the source they test
 

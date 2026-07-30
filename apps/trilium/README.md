@@ -142,6 +142,34 @@ gradually over several passes (partial semantic coverage in the meantime -- lexi
 search still works normally throughout) rather than all at once, the same bound
 [`@mycelium/index`](https://www.npmjs.com/package/@mycelium/index) applies to every source it syncs.
 
+## Standalone MCP server
+
+These tools also run outside OpenClaw entirely, as an ordinary [MCP](https://modelcontextprotocol.io)
+server (stdio or Streamable HTTP), via [`@mycelium/mcp`](https://www.npmjs.com/package/@mycelium/mcp).
+Useful for any MCP client -- Claude Desktop, Claude Code, etc. -- not just OpenClaw.
+
+Configuration is env vars instead of `openclaw.json`:
+
+| Env var | Required | Notes |
+| --- | --- | --- |
+| `TRILIUM_BASE_URL` | yes | Same as `baseUrl` above |
+| `TRILIUM_API_TOKEN` | yes | Same as `apiToken` above -- always a plain string here, no SecretRef support (that's an OpenClaw config-system concept) |
+| `TRILIUM_SEMANTIC_SEARCH_ENABLED` | no | Set to `false` to disable (defaults on, same fail-open behavior as the plugin) |
+| `TRILIUM_SEMANTIC_INDEX_PATH` | no | Defaults under `~/.mycelium/trilium/` |
+| `TRILIUM_EMBEDDING_PROVIDER` | no | `openai-compatible` (default) or `local` -- see the Semantic search section above |
+| `TRILIUM_EMBEDDING_BASE_URL` / `TRILIUM_EMBEDDING_API_KEY` / `TRILIUM_EMBEDDING_MODEL` / `TRILIUM_EMBEDDING_DIMENSIONS` | see above | Required together for the `openai-compatible` provider, same as `semanticSearch.embedding.*` above |
+| `MCP_TRANSPORT` | no | `stdio` (default) or `http` |
+| `MCP_PORT` / `MCP_HTTP_PATH` | no | Only used when `MCP_TRANSPORT=http`; default to `3000` / `/mcp` |
+
+```bash
+pnpm run build
+TRILIUM_BASE_URL=https://trilium.example.com TRILIUM_API_TOKEN=your-etapi-token \
+  pnpm run start:mcp
+```
+
+There's no Docker image or npm `bin` entry for this yet -- `node dist/mcp-server.js` (or
+`pnpm run start:mcp`) is the current way to run it.
+
 ## Skills
 
 The plugin bundles one skill (`skills/trilium`) that OpenClaw picks up automatically once it's

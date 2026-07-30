@@ -97,6 +97,9 @@ importers:
       '@mycelium/index':
         specifier: workspace:*
         version: link:../../core/index
+      '@mycelium/mcp':
+        specifier: workspace:*
+        version: link:../../core/mcp
       marked:
         specifier: ^18.0.7
         version: 18.0.7
