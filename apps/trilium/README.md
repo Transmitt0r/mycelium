@@ -167,8 +167,10 @@ TRILIUM_BASE_URL=https://trilium.example.com TRILIUM_API_TOKEN=your-etapi-token 
   pnpm run start:mcp
 ```
 
-There's no Docker image or npm `bin` entry for this yet -- `node dist/mcp-server.js` (or
-`pnpm run start:mcp`) is the current way to run it.
+There's no npm `bin` entry for this yet -- `node dist/mcp-server.js` (or `pnpm run start:mcp`) is
+the current way to run it outside a container. A `Dockerfile` is available too (build from the
+monorepo root, not this directory -- see the Dockerfile's own header comment for the exact
+command); it isn't published to any registry, so build it locally.
 
 ## Skills
 
