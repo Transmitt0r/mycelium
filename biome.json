@@ -1,18 +1,20 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
-  "extends": ["./packages/tooling-config/biome.preset.json"],
+  "extends": ["./tools/tooling-config/biome.preset.json"],
   "files": {
     "includes": [
-      "packages/*/src/**",
+      "core/*/src/**",
       "tools/*/src/**",
+      "apps/*/src/**",
       "*.json",
-      "packages/*/*.json",
-      "tools/*/*.json"
+      "core/*/*.json",
+      "tools/*/*.json",
+      "apps/*/*.json"
     ]
   },
   "overrides": [
     {
-      "includes": ["packages/*/src/generated/**"],
+      "includes": ["apps/*/src/generated/**"],
       "linter": { "enabled": false },
       "formatter": { "enabled": false }
     }

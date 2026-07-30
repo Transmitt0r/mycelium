@@ -1,6 +1,7 @@
 packages:
-  - "packages/*"
+  - "core/*"
   - "tools/*"
+  - "apps/*"
 
 # Most of these come from the `openclaw` peerDependency's own dependency
 # tree (@google/genai, protobufjs, tree-sitter-bash), not from any package

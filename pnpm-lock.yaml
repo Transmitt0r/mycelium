@@ -21,7 +21,109 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  packages/embed:
+  apps/onepassword:
+    dependencies:
+      openclaw:
+        specifier: '>=2026.7.0'
+        version: 2026.7.1
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.5.4
+        version: 2.5.6
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.2
+      semantic-release:
+        specifier: ^25.0.8
+        version: 25.0.8(typescript@7.0.2)
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@26.1.2)(vite@8.1.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
+
+  apps/paperless-ngx:
+    dependencies:
+      openapi-fetch:
+        specifier: ^0.17.0
+        version: 0.17.0
+      openclaw:
+        specifier: '>=2026.7.0'
+        version: 2026.7.1
+      typebox:
+        specifier: ^1.3.3
+        version: 1.3.8
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.5.4
+        version: 2.5.6
+      '@mycelium/openapi-codegen':
+        specifier: workspace:*
+        version: link:../../tools/openapi-codegen
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.2
+      openapi-typescript:
+        specifier: ^7.13.0
+        version: 7.13.0(typescript@7.0.2)
+      semantic-release:
+        specifier: ^25.0.8
+        version: 25.0.8(typescript@7.0.2)
+      tsx:
+        specifier: ^4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@26.1.2)(vite@8.1.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
+
+  apps/trilium:
+    dependencies:
+      marked:
+        specifier: ^18.0.7
+        version: 18.0.7
+      node-html-markdown:
+        specifier: ^2.0.0
+        version: 2.0.0
+      openapi-fetch:
+        specifier: ^0.17.0
+        version: 0.17.0
+      openclaw:
+        specifier: '>=2026.7.0'
+        version: 2026.7.1
+      typebox:
+        specifier: ^1.3.3
+        version: 1.3.8
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.5.4
+        version: 2.5.6
+      '@mycelium/openapi-codegen':
+        specifier: workspace:*
+        version: link:../../tools/openapi-codegen
+      '@types/node':
+        specifier: ^26.1.1
+        version: 26.1.2
+      openapi-typescript:
+        specifier: ^7.13.0
+        version: 7.13.0(typescript@7.0.2)
+      semantic-release:
+        specifier: ^25.0.8
+        version: 25.0.8(typescript@7.0.2)
+      tsx:
+        specifier: ^4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@26.1.2)(vite@8.1.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
+
+  core/embed:
     dependencies:
       '@ai-sdk/openai-compatible':
         specifier: ^3.0.17
@@ -41,7 +143,7 @@ importers:
         specifier: ^4.2.0
         version: 4.2.0
 
-  packages/index:
+  core/index:
     dependencies:
       '@mycelium/embed':
         specifier: workspace:*
@@ -57,122 +159,14 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@26.1.2)(vite@8.1.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
 
-  packages/mcp:
+  core/mcp:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
-        version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
+        version: 1.30.0(zod@4.4.3)
     devDependencies:
       typescript:
         specifier: ^7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.2)(vite@8.1.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
-
-  packages/onepassword:
-    dependencies:
-      openclaw:
-        specifier: '>=2026.7.0'
-        version: 2026.7.1(supports-color@10.2.2)
-    devDependencies:
-      '@biomejs/biome':
-        specifier: ^2.5.4
-        version: 2.5.6
-      '@types/node':
-        specifier: ^26.1.1
-        version: 26.1.2
-      semantic-release:
-        specifier: ^25.0.8
-        version: 25.0.8(supports-color@10.2.2)(typescript@7.0.2)
-      typescript:
-        specifier: 7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.2)(vite@8.1.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
-
-  packages/paperless-ngx:
-    dependencies:
-      openapi-fetch:
-        specifier: ^0.17.0
-        version: 0.17.0
-      openclaw:
-        specifier: '>=2026.7.0'
-        version: 2026.7.1(supports-color@10.2.2)
-      typebox:
-        specifier: ^1.3.3
-        version: 1.3.8
-    devDependencies:
-      '@biomejs/biome':
-        specifier: ^2.5.4
-        version: 2.5.6
-      '@mycelium/openapi-codegen':
-        specifier: workspace:*
-        version: link:../../tools/openapi-codegen
-      '@types/node':
-        specifier: ^26.1.1
-        version: 26.1.2
-      openapi-typescript:
-        specifier: ^7.13.0
-        version: 7.13.0(typescript@7.0.2)
-      semantic-release:
-        specifier: ^25.0.8
-        version: 25.0.8(typescript@7.0.2)
-      tsx:
-        specifier: ^4.23.1
-        version: 4.23.1
-      typescript:
-        specifier: 7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@26.1.2)(vite@8.1.5(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
-
-  packages/tooling-config:
-    devDependencies:
-      '@biomejs/biome':
-        specifier: ^2.5.6
-        version: 2.5.6
-
-  packages/trilium:
-    dependencies:
-      marked:
-        specifier: ^18.0.7
-        version: 18.0.7
-      node-html-markdown:
-        specifier: ^2.0.0
-        version: 2.0.0
-      openapi-fetch:
-        specifier: ^0.17.0
-        version: 0.17.0
-      openclaw:
-        specifier: '>=2026.7.0'
-        version: 2026.7.1(supports-color@10.2.2)
-      typebox:
-        specifier: ^1.3.3
-        version: 1.3.8
-    devDependencies:
-      '@biomejs/biome':
-        specifier: ^2.5.4
-        version: 2.5.6
-      '@mycelium/openapi-codegen':
-        specifier: workspace:*
-        version: link:../../tools/openapi-codegen
-      '@types/node':
-        specifier: ^26.1.1
-        version: 26.1.2
-      openapi-typescript:
-        specifier: ^7.13.0
-        version: 7.13.0(typescript@7.0.2)
-      semantic-release:
-        specifier: ^25.0.8
-        version: 25.0.8(typescript@7.0.2)
-      tsx:
-        specifier: ^4.23.1
-        version: 4.23.1
-      typescript:
-        specifier: 7.0.2
         version: 7.0.2
       vitest:
         specifier: ^4.1.10
@@ -186,6 +180,12 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+
+  tools/tooling-config:
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^2.5.6
+        version: 2.5.6
 
 packages:
 
@@ -4212,16 +4212,16 @@ snapshots:
   '@grammyjs/runner@2.0.3(grammy@1.44.0)':
     dependencies:
       abort-controller: 3.0.0
-      grammy: 1.44.0(supports-color@10.2.2)
+      grammy: 1.44.0
 
   '@grammyjs/transformer-throttler@1.2.1(grammy@1.44.0)':
     dependencies:
       bottleneck: 2.19.5
-      grammy: 1.44.0(supports-color@10.2.2)
+      grammy: 1.44.0
 
   '@grammyjs/types@3.28.0': {}
 
-  '@homebridge/ciao@1.3.9(supports-color@10.2.2)':
+  '@homebridge/ciao@1.3.9':
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
       fast-deep-equal: 3.1.3
@@ -4426,8 +4426,8 @@ snapshots:
       cross-spawn: 7.0.6
       eventsource: 3.0.7
       eventsource-parser: 3.1.0
-      express: 5.2.1(supports-color@10.2.2)
-      express-rate-limit: 8.6.1(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
+      express: 5.2.1
+      express-rate-limit: 8.6.1(express@5.2.1)
       hono: 4.12.32
       jose: 6.2.4
       json-schema-typed: 8.0.2
@@ -4438,7 +4438,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.4.3)':
+  '@modelcontextprotocol/sdk@1.30.0(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 2.0.12(hono@4.12.32)
       ajv: 8.20.0
@@ -4448,8 +4448,8 @@ snapshots:
       cross-spawn: 7.0.6
       eventsource: 3.0.7
       eventsource-parser: 3.1.0
-      express: 5.2.1(supports-color@10.2.2)
-      express-rate-limit: 8.6.1(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
+      express: 5.2.1
+      express-rate-limit: 8.6.1(express@5.2.1)
       hono: 4.12.32
       jose: 6.2.4
       json-schema-typed: 8.0.2
@@ -4682,20 +4682,6 @@ snapshots:
 
   '@sec-ant/readable-stream@0.4.1': {}
 
-  '@semantic-release/commit-analyzer@13.0.1(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))(supports-color@10.2.2)':
-    dependencies:
-      conventional-changelog-angular: 8.3.1
-      conventional-changelog-writer: 8.4.0
-      conventional-commits-filter: 5.0.0
-      conventional-commits-parser: 6.4.0
-      debug: 4.4.3(supports-color@10.2.2)
-      import-from-esm: 2.0.0
-      lodash-es: 4.18.1
-      micromatch: 4.0.8
-      semantic-release: 25.0.8(supports-color@10.2.2)(typescript@7.0.2)
-    transitivePeerDependencies:
-      - supports-color
-
   '@semantic-release/commit-analyzer@13.0.1(semantic-release@25.0.8(typescript@7.0.2))':
     dependencies:
       conventional-changelog-angular: 8.3.1
@@ -4712,30 +4698,6 @@ snapshots:
 
   '@semantic-release/error@4.0.0': {}
 
-  '@semantic-release/github@12.0.9(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))(supports-color@10.2.2)':
-    dependencies:
-      '@octokit/core': 7.0.6
-      '@octokit/plugin-paginate-rest': 14.0.0(@octokit/core@7.0.6)
-      '@octokit/plugin-retry': 8.1.0(@octokit/core@7.0.6)
-      '@octokit/plugin-throttling': 11.0.3(@octokit/core@7.0.6)
-      '@semantic-release/error': 4.0.0
-      aggregate-error: 5.0.0
-      debug: 4.4.3(supports-color@10.2.2)
-      dir-glob: 3.0.1
-      http-proxy-agent: 9.1.0(supports-color@10.2.2)
-      https-proxy-agent: 9.1.0(supports-color@10.2.2)
-      issue-parser: 7.0.2
-      lodash-es: 4.18.1
-      mime: 4.1.0
-      p-filter: 4.1.0
-      semantic-release: 25.0.8(supports-color@10.2.2)(typescript@7.0.2)
-      tinyglobby: 0.2.17
-      undici: 7.29.0
-      url-join: 5.0.0
-    transitivePeerDependencies:
-      - kerberos
-      - supports-color
-
   '@semantic-release/github@12.0.9(semantic-release@25.0.8(typescript@7.0.2))':
     dependencies:
       '@octokit/core': 7.0.6
@@ -4746,8 +4708,8 @@ snapshots:
       aggregate-error: 5.0.0
       debug: 4.4.3(supports-color@10.2.2)
       dir-glob: 3.0.1
-      http-proxy-agent: 9.1.0(supports-color@10.2.2)
-      https-proxy-agent: 9.1.0(supports-color@10.2.2)
+      http-proxy-agent: 9.1.0
+      https-proxy-agent: 9.1.0
       issue-parser: 7.0.2
       lodash-es: 4.18.1
       mime: 4.1.0
@@ -4759,25 +4721,6 @@ snapshots:
     transitivePeerDependencies:
       - kerberos
       - supports-color
-
-  '@semantic-release/npm@13.1.5(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))':
-    dependencies:
-      '@actions/core': 3.0.1
-      '@semantic-release/error': 4.0.0
-      aggregate-error: 5.0.0
-      env-ci: 11.2.0
-      execa: 9.6.1
-      fs-extra: 11.4.0
-      lodash-es: 4.18.1
-      nerf-dart: 1.0.0
-      normalize-url: 9.0.1
-      npm: 11.18.0
-      rc: 1.2.8
-      read-pkg: 10.1.0
-      registry-auth-token: 5.1.1
-      semantic-release: 25.0.8(supports-color@10.2.2)(typescript@7.0.2)
-      semver: 7.8.5
-      tempy: 3.2.0
 
   '@semantic-release/npm@13.1.5(semantic-release@25.0.8(typescript@7.0.2))':
     dependencies:
@@ -4797,20 +4740,6 @@ snapshots:
       semantic-release: 25.0.8(typescript@7.0.2)
       semver: 7.8.5
       tempy: 3.2.0
-
-  '@semantic-release/release-notes-generator@14.1.1(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))(supports-color@10.2.2)':
-    dependencies:
-      conventional-changelog-angular: 8.3.1
-      conventional-changelog-writer: 8.4.0
-      conventional-commits-filter: 5.0.0
-      conventional-commits-parser: 6.4.0
-      debug: 4.4.3(supports-color@10.2.2)
-      import-from-esm: 2.0.0
-      lodash-es: 4.18.1
-      read-package-up: 11.0.0
-      semantic-release: 25.0.8(supports-color@10.2.2)(typescript@7.0.2)
-    transitivePeerDependencies:
-      - supports-color
 
   '@semantic-release/release-notes-generator@14.1.1(semantic-release@25.0.8(typescript@7.0.2))':
     dependencies:
@@ -4838,7 +4767,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@tokenizer/inflate@0.4.1(supports-color@10.2.2)':
+  '@tokenizer/inflate@0.4.1':
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
       token-types: 6.1.2
@@ -5074,7 +5003,7 @@ snapshots:
 
   bn.js@4.12.5: {}
 
-  body-parser@2.3.0(supports-color@10.2.2):
+  body-parser@2.3.0:
     dependencies:
       bytes: 3.1.2
       content-type: 2.0.0
@@ -5509,18 +5438,18 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  express-rate-limit@8.6.1(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2):
+  express-rate-limit@8.6.1(express@5.2.1):
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
-      express: 5.2.1(supports-color@10.2.2)
+      express: 5.2.1
       ip-address: 10.3.1
     transitivePeerDependencies:
       - supports-color
 
-  express@5.2.1(supports-color@10.2.2):
+  express@5.2.1:
     dependencies:
       accepts: 2.0.0
-      body-parser: 2.3.0(supports-color@10.2.2)
+      body-parser: 2.3.0
       content-disposition: 1.1.0
       content-type: 1.0.5
       cookie: 0.7.2
@@ -5530,7 +5459,7 @@ snapshots:
       encodeurl: 2.0.0
       escape-html: 1.0.3
       etag: 1.8.1
-      finalhandler: 2.1.1(supports-color@10.2.2)
+      finalhandler: 2.1.1
       fresh: 2.0.0
       http-errors: 2.0.1
       merge-descriptors: 2.0.0
@@ -5541,8 +5470,8 @@ snapshots:
       proxy-addr: 2.0.7
       qs: 6.15.3
       range-parser: 1.3.0
-      router: 2.2.0(supports-color@10.2.2)
-      send: 1.2.1(supports-color@10.2.2)
+      router: 2.2.0
+      send: 1.2.1
       serve-static: 2.2.1
       statuses: 2.0.2
       type-is: 2.1.0
@@ -5599,9 +5528,9 @@ snapshots:
     dependencies:
       is-unicode-supported: 2.1.0
 
-  file-type@22.0.1(supports-color@10.2.2):
+  file-type@22.0.1:
     dependencies:
-      '@tokenizer/inflate': 0.4.1(supports-color@10.2.2)
+      '@tokenizer/inflate': 0.4.1
       strtok3: 10.3.5
       token-types: 6.1.2
       uint8array-extras: 1.5.0
@@ -5612,7 +5541,7 @@ snapshots:
     dependencies:
       to-regex-range: 5.0.1
 
-  finalhandler@2.1.1(supports-color@10.2.2):
+  finalhandler@2.1.1:
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
       encodeurl: 2.0.0
@@ -5785,7 +5714,7 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
-  grammy@1.44.0(supports-color@10.2.2):
+  grammy@1.44.0:
     dependencies:
       '@grammyjs/types': 3.28.0
       abort-controller: 3.0.0
@@ -5861,7 +5790,7 @@ snapshots:
       statuses: 2.0.2
       toidentifier: 1.0.1
 
-  http-proxy-agent@9.1.0(supports-color@10.2.2):
+  http-proxy-agent@9.1.0:
     dependencies:
       agent-base: 9.0.0
       debug: 4.4.3(supports-color@10.2.2)
@@ -5879,7 +5808,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  https-proxy-agent@9.1.0(supports-color@10.2.2):
+  https-proxy-agent@9.1.0:
     dependencies:
       agent-base: 9.0.0
       debug: 4.4.3(supports-color@10.2.2)
@@ -6383,7 +6312,7 @@ snapshots:
       typescript: 7.0.2
       yargs-parser: 21.1.1
 
-  openclaw@2026.7.1(supports-color@10.2.2):
+  openclaw@2026.7.1:
     dependencies:
       '@agentclientprotocol/sdk': 1.1.0(zod@4.4.3)
       '@anthropic-ai/sdk': 0.109.1(zod@4.4.3)
@@ -6393,7 +6322,7 @@ snapshots:
       '@google/genai': 2.10.0(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))
       '@grammyjs/runner': 2.0.3(grammy@1.44.0)
       '@grammyjs/transformer-throttler': 1.2.1(grammy@1.44.0)
-      '@homebridge/ciao': 1.3.9(supports-color@10.2.2)
+      '@homebridge/ciao': 1.3.9
       '@lydell/node-pty': 1.2.0-beta.12
       '@mistralai/mistralai': 2.4.0
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
@@ -6409,10 +6338,10 @@ snapshots:
       croner: 10.0.1
       diff: 9.0.0
       dotenv: 17.4.2
-      express: 5.2.1(supports-color@10.2.2)
-      file-type: 22.0.1(supports-color@10.2.2)
+      express: 5.2.1
+      file-type: 22.0.1
       glob: 13.0.6
-      grammy: 1.44.0(supports-color@10.2.2)
+      grammy: 1.44.0
       highlight.js: 11.11.1
       hosted-git-info: 10.1.1
       ignore: 7.0.5
@@ -6770,7 +6699,7 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.1.5
       '@rolldown/binding-win32-x64-msvc': 1.1.5
 
-  router@2.2.0(supports-color@10.2.2):
+  router@2.2.0:
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
       depd: 2.0.0
@@ -6789,41 +6718,6 @@ snapshots:
   safe-buffer@5.2.1: {}
 
   safer-buffer@2.1.2: {}
-
-  semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2):
-    dependencies:
-      '@semantic-release/commit-analyzer': 13.0.1(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))(supports-color@10.2.2)
-      '@semantic-release/error': 4.0.0
-      '@semantic-release/github': 12.0.9(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))(supports-color@10.2.2)
-      '@semantic-release/npm': 13.1.5(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))
-      '@semantic-release/release-notes-generator': 14.1.1(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))(supports-color@10.2.2)
-      aggregate-error: 5.0.0
-      cosmiconfig: 9.0.2(typescript@7.0.2)
-      debug: 4.4.3(supports-color@10.2.2)
-      env-ci: 11.2.0
-      execa: 9.6.1
-      figures: 6.1.0
-      find-versions: 6.0.0
-      get-stream: 6.0.1
-      git-log-parser: 1.2.1
-      hook-std: 4.0.0
-      hosted-git-info: 9.0.3
-      import-from-esm: 2.0.0
-      lodash-es: 4.18.1
-      marked: 15.0.12
-      marked-terminal: 7.3.0(marked@15.0.12)
-      micromatch: 4.0.8
-      p-each-series: 3.0.0
-      p-reduce: 3.0.0
-      read-package-up: 12.0.0
-      resolve-from: 5.0.0
-      semver: 7.8.5
-      signale: 1.4.0
-      yargs: 18.1.0
-    transitivePeerDependencies:
-      - kerberos
-      - supports-color
-      - typescript
 
   semantic-release@25.0.8(typescript@7.0.2):
     dependencies:
@@ -6867,7 +6761,7 @@ snapshots:
 
   semver@7.8.5: {}
 
-  send@1.2.1(supports-color@10.2.2):
+  send@1.2.1:
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
       encodeurl: 2.0.0
@@ -6893,7 +6787,7 @@ snapshots:
       encodeurl: 2.0.0
       escape-html: 1.0.3
       parseurl: 1.3.3
-      send: 1.2.1(supports-color@10.2.2)
+      send: 1.2.1
     transitivePeerDependencies:
       - supports-color
 

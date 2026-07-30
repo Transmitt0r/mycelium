@@ -1,7 +1,7 @@
 {
-  "name": "@mycelium/index",
+  "name": "@mycelium/embed",
   "version": "0.0.0",
-  "description": "Local-first semantic index: sqlite-vec vector store, incremental content-hash sync, and hybrid lexical/semantic search via Reciprocal Rank Fusion.",
+  "description": "Pluggable embedding + chat client for any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, vLLM, LM Studio, ...), with an opt-in local CPU embedding fallback.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -24,19 +24,22 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Transmitt0r/mycelium.git",
-    "directory": "packages/index"
+    "directory": "core/embed"
   },
   "keywords": [
-    "semantic-search",
-    "vector-search",
-    "sqlite-vec",
-    "rag",
-    "hybrid-search",
-    "rrf"
+    "embeddings",
+    "openai-compatible",
+    "openrouter",
+    "llm",
+    "local-inference",
+    "mcp"
   ],
   "dependencies": {
-    "@mycelium/embed": "workspace:*",
-    "sqlite-vec": "^0.1.9"
+    "@ai-sdk/openai-compatible": "^3.0.17",
+    "ai": "^7.0.42"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "^4.2.0"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

@@ -1,8 +1,4 @@
 {
   "files": [],
-  "references": [
-    { "path": "./packages/embed" },
-    { "path": "./packages/index" },
-    { "path": "./packages/mcp" }
-  ]
+  "references": [{ "path": "./core/embed" }, { "path": "./core/index" }, { "path": "./core/mcp" }]
 }

@@ -1,7 +1,7 @@
 {
-  "name": "@mycelium/embed",
+  "name": "@mycelium/mcp",
   "version": "0.0.0",
-  "description": "Pluggable embedding + chat client for any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, vLLM, LM Studio, ...), with an opt-in local CPU embedding fallback.",
+  "description": "Bridge agent-tool factories (OpenClaw's AnyAgentTool shape) onto a standalone MCP server, over stdio and Streamable HTTP.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -24,22 +24,17 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Transmitt0r/mycelium.git",
-    "directory": "packages/embed"
+    "directory": "core/mcp"
   },
   "keywords": [
-    "embeddings",
-    "openai-compatible",
-    "openrouter",
-    "llm",
-    "local-inference",
-    "mcp"
+    "mcp",
+    "model-context-protocol",
+    "stdio",
+    "streamable-http",
+    "agent-tools"
   ],
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^3.0.17",
-    "ai": "^7.0.42"
-  },
-  "optionalDependencies": {
-    "@huggingface/transformers": "^4.2.0"
+    "@modelcontextprotocol/sdk": "^1.30.0"
   },
   "devDependencies": {
     "typescript": "^7.0.2",

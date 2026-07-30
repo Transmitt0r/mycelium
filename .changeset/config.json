@@ -7,5 +7,9 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": []
+  "ignore": [
+    "@transmitt0r/openclaw-plugin-paperless-ngx",
+    "@transmitt0r/openclaw-plugin-trilium",
+    "@transmitt0r/openclaw-plugin-onepassword"
+  ]
 }

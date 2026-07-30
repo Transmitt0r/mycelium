@@ -1,7 +1,7 @@
 # @mycelium/tooling-config
 
-Shared biome + tsconfig presets: one source of truth for this monorepo and for the standalone
-plugin repos (paperless-ngx, trilium, 1password, ...), instead of drifting hand-copied config.
+Shared biome + tsconfig presets: one source of truth for every package in this monorepo (and
+for any external repo that wants the same baseline), instead of drifting hand-copied config.
 
 ## Usage
 
