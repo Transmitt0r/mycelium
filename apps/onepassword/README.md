@@ -10,7 +10,7 @@ Instead of defining a separate exec provider for every 1Password secret (6+ cold
 ## Install
 
 ```bash
-openclaw plugins install clawhub:transmitt0r/openclaw-plugin-onepassword
+openclaw plugins install clawhub:@transmitt0r/openclaw-plugin-onepassword
 ```
 
 Or for local development, point OpenClaw at a built copy of this repo.
