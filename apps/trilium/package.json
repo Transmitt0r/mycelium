@@ -69,6 +69,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
+    "@semantic-release/exec": "^7.1.0",
     "@transmitt0r/mycelium-openapi-codegen": "workspace:*",
     "@types/node": "^26.1.1",
     "openapi-typescript": "^7.13.0",

@@ -36,11 +36,15 @@ per app. Since all three apps (and `core/*`/`tools/*`) now share one git history
 semantic-release-monorepo` in `.releaserc.json` scopes commit analysis and the release tag
 (`@transmitt0r/openclaw-plugin-onepassword-v<version>`, not the default `v<version>`) to just this
 package's own directory. It computes the next version from commits since that tag, publishes to
-npm (via trusted OIDC publishing — no token secret), and creates a GitHub release with generated
-notes.
+npm (via trusted OIDC publishing — no token secret), publishes to ClawHub (via
+`scripts/publish-to-clawhub.sh` at the repo root, run as this app's `@semantic-release/exec`
+`publishCmd` — only invoked once semantic-release has actually decided to publish a release), and
+creates a GitHub release with generated notes.
 
-Publishing to ClawHub is still a separate manual step:
-`clawhub package publish transmitt0r/openclaw-plugin-onepassword`.
+ClawHub publishing needs a `CLAWHUB_API_KEY` repo secret (a maintainer's ClawHub token). Fallback
+for manual publishing: `clawhub package publish . --family code-plugin`, run from this directory
+(not `clawhub package publish transmitt0r/openclaw-plugin-onepassword` — that was a GitHub
+`owner/repo` reference valid back when this app was its own standalone repo, not a package slug).
 
 ### Bootstrapping a brand-new package
 

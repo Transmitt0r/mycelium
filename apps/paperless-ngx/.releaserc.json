@@ -1,4 +1,11 @@
 {
   "branches": ["main"],
-  "extends": "semantic-release-monorepo"
+  "extends": "semantic-release-monorepo",
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    "@semantic-release/npm",
+    ["@semantic-release/exec", { "publishCmd": "bash ../../scripts/publish-to-clawhub.sh" }],
+    "@semantic-release/github"
+  ]
 }

@@ -62,3 +62,7 @@ jobs:
         run: pnpm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Consumed by scripts/publish-to-clawhub.sh, run as this app's
+          # @semantic-release/exec publishCmd -- only invoked once
+          # semantic-release has actually decided to publish a release.
+          CLAWHUB_API_KEY: ${{ secrets.CLAWHUB_API_KEY }}

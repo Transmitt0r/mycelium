@@ -61,12 +61,16 @@ per app. Since all three apps (and `core/*`/`tools/*`) now share one git history
 semantic-release-monorepo` in `.releaserc.json` scopes commit analysis and the release tag
 (`@transmitt0r/openclaw-plugin-paperless-ngx-v<version>`, not the default `v<version>`) to just
 this package's own directory. It computes the next version from commits since that tag, publishes
-to npm (via trusted OIDC publishing — no token secret), and creates a GitHub release with
-generated notes.
+to npm (via trusted OIDC publishing — no token secret), publishes to ClawHub (via
+`scripts/publish-to-clawhub.sh` at the repo root, run as this app's `@semantic-release/exec`
+`publishCmd` — only invoked once semantic-release has actually decided to publish a release), and
+creates a GitHub release with generated notes.
 
-Publishing to ClawHub is still a separate manual step:
-`clawhub package publish transmitt0r/openclaw-plugin-paperless-ngx` — CI automation for this hit an
-environment-specific bug in ClawHub's npm-pack invocation that hasn't been root-caused yet.
+ClawHub publishing needs a `CLAWHUB_API_KEY` repo secret (a maintainer's ClawHub token). An earlier
+attempt at this hit an environment-specific bug in ClawHub's npm-pack invocation
+("npm pack did not return a tarball filename"); that's since been fixed upstream (confirmed against
+ClawHub CLI v0.23.1). If it resurfaces, `clawhub package publish . --family code-plugin` run
+manually from this directory is the fallback.
 
 ### Bootstrapping a brand-new package
 

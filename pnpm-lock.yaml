@@ -30,6 +30,9 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.4
         version: 2.5.6
+      '@semantic-release/exec':
+        specifier: ^7.1.0
+        version: 7.1.0(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.2
@@ -38,7 +41,7 @@ importers:
         version: 25.0.8(supports-color@10.2.2)(typescript@7.0.2)
       semantic-release-monorepo:
         specifier: ^8.0.2
-        version: 8.0.2(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))
+        version: 8.0.2(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))(supports-color@10.2.2)
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -70,6 +73,9 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.4
         version: 2.5.6
+      '@semantic-release/exec':
+        specifier: ^7.1.0
+        version: 7.1.0(semantic-release@25.0.8(typescript@7.0.2))
       '@transmitt0r/mycelium-openapi-codegen':
         specifier: workspace:*
         version: link:../../tools/openapi-codegen
@@ -125,6 +131,9 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.4
         version: 2.5.6
+      '@semantic-release/exec':
+        specifier: ^7.1.0
+        version: 7.1.0(semantic-release@25.0.8(typescript@7.0.2))
       '@transmitt0r/mycelium-openapi-codegen':
         specifier: workspace:*
         version: link:../../tools/openapi-codegen
@@ -1112,6 +1121,12 @@ packages:
   '@semantic-release/error@4.0.0':
     resolution: {integrity: sha512-mgdxrHTLOjOddRVYIYDo0fR3/v61GNN1YGkfbrjuIKg/uMgCd+Qzo3UAXJ+woLQQpos4pl5Esuw5A7AoNlzjUQ==}
     engines: {node: '>=18'}
+
+  '@semantic-release/exec@7.1.0':
+    resolution: {integrity: sha512-4ycZ2atgEUutspPZ2hxO6z8JoQt4+y/kkHvfZ1cZxgl9WKJId1xPj+UadwInj+gMn2Gsv+fLnbrZ4s+6tK2TFQ==}
+    engines: {node: '>=20.8.1'}
+    peerDependencies:
+      semantic-release: '>=24.1.0'
 
   '@semantic-release/github@12.0.9':
     resolution: {integrity: sha512-ODIqb0V3QqndipryEEiaBxUQCFjvv7Oese5Dt4omMGa60YRNEW0Sx3K+zri0uac2Y6S9nOlMehciWIzvvRCTGQ==}
@@ -4927,6 +4942,30 @@ snapshots:
 
   '@semantic-release/error@4.0.0': {}
 
+  '@semantic-release/exec@7.1.0(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))':
+    dependencies:
+      '@semantic-release/error': 4.0.0
+      aggregate-error: 3.1.0
+      debug: 4.4.3(supports-color@10.2.2)
+      execa: 9.6.1
+      lodash-es: 4.18.1
+      parse-json: 8.3.0
+      semantic-release: 25.0.8(supports-color@10.2.2)(typescript@7.0.2)
+    transitivePeerDependencies:
+      - supports-color
+
+  '@semantic-release/exec@7.1.0(semantic-release@25.0.8(typescript@7.0.2))':
+    dependencies:
+      '@semantic-release/error': 4.0.0
+      aggregate-error: 3.1.0
+      debug: 4.4.3(supports-color@10.2.2)
+      execa: 9.6.1
+      lodash-es: 4.18.1
+      parse-json: 8.3.0
+      semantic-release: 25.0.8(typescript@7.0.2)
+    transitivePeerDependencies:
+      - supports-color
+
   '@semantic-release/github@12.0.9(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))(supports-color@10.2.2)':
     dependencies:
       '@octokit/core': 7.0.6
@@ -7156,7 +7195,7 @@ snapshots:
 
   safer-buffer@2.1.2: {}
 
-  semantic-release-monorepo@8.0.2(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2)):
+  semantic-release-monorepo@8.0.2(semantic-release@25.0.8(supports-color@10.2.2)(typescript@7.0.2))(supports-color@10.2.2):
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
       execa: 5.1.1
