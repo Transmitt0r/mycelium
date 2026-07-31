@@ -1,6 +1,6 @@
 # openclaw-plugin-onepassword
 
-[![CI](https://github.com/Transmitt0r/openclaw-plugin-onepassword/actions/workflows/ci.yml/badge.svg)](https://github.com/Transmitt0r/openclaw-plugin-onepassword/actions/workflows/ci.yml)
+[![CI](https://github.com/Transmitt0r/mycelium/actions/workflows/ci.yml/badge.svg)](https://github.com/Transmitt0r/mycelium/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 An [OpenClaw](https://docs.openclaw.ai) plugin that provides a **1Password secret provider integration** — batch-resolution of secrets from your vaults via the `op` CLI.
