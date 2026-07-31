@@ -66,11 +66,15 @@ to npm (via trusted OIDC publishing — no token secret), publishes to ClawHub (
 `publishCmd` — only invoked once semantic-release has actually decided to publish a release), and
 creates a GitHub release with generated notes.
 
-ClawHub publishing needs a `CLAWHUB_API_KEY` repo secret (a maintainer's ClawHub token). An earlier
-attempt at this hit an environment-specific bug in ClawHub's npm-pack invocation
-("npm pack did not return a tarball filename"); that's since been fixed upstream (confirmed against
-ClawHub CLI v0.23.1). If it resurfaces, `clawhub package publish . --family code-plugin` run
-manually from this directory is the fallback.
+ClawHub publishing needs a `CLAWHUB_API_KEY` repo secret (a maintainer's ClawHub token), and is
+best-effort: a ClawHub-side failure logs a `::warning::` (see `scripts/publish-to-clawhub.sh`) but
+never blocks the npm publish or GitHub release. It's failed twice so far for two different reasons
+— a leftover, unresolved-token `.npmrc` from `actions/setup-node`'s `registry-url` (no longer
+relevant now that `release-apps.yml` never sets `registry-url`), and npm 12.0.0 changing
+`npm pack --json`'s output shape in a way ClawHub CLI v0.23.1's own npm-pack invocation doesn't
+handle (fixed by pinning `release-apps.yml`'s npm install to the 11.x line — see that workflow's
+comments). If it fails again, `clawhub package publish . --family code-plugin` run manually from
+this directory is the fallback.
 
 ### Bootstrapping a brand-new package
 
