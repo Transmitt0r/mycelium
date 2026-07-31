@@ -18,7 +18,7 @@ export function createLocalEmbeddingProvider(
   const dimensions = config.dimensions ?? (config.model ? undefined : DEFAULT_DIMENSIONS);
   if (dimensions === undefined) {
     throw new Error(
-      `@mycelium/embed: local provider needs an explicit "dimensions" when overriding the default model (got model="${model}")`,
+      `@transmitt0r/mycelium-embed: local provider needs an explicit "dimensions" when overriding the default model (got model="${model}")`,
     );
   }
 
@@ -46,7 +46,8 @@ export function createLocalEmbeddingProvider(
     async embedQuery(text) {
       const extract = await getExtractor();
       const [embedding] = await extract([text]);
-      if (!embedding) throw new Error("@mycelium/embed: local provider returned no embedding");
+      if (!embedding)
+        throw new Error("@transmitt0r/mycelium-embed: local provider returned no embedding");
       return embedding;
     },
 

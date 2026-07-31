@@ -1,4 +1,4 @@
-# @mycelium/openapi-codegen
+# @transmitt0r/mycelium-openapi-codegen
 
 Fetch an OpenAPI schema, run [openapi-typescript](https://openapi-ts.dev) against it, clean up
 the temp file. You supply the fetch logic (auth headers, a pinned URL, whatever your source
@@ -7,7 +7,7 @@ needs); this owns the fetch-to-tempfile lifecycle and the codegen invocation.
 ## Usage
 
 ```ts
-import { curlToFile, generateTypes } from "@mycelium/openapi-codegen";
+import { curlToFile, generateTypes } from "@transmitt0r/mycelium-openapi-codegen";
 
 generateTypes({
   outPath: "src/generated/my-schema.d.ts",

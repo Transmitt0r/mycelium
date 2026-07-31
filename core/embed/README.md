@@ -1,4 +1,4 @@
-# @mycelium/embed
+# @transmitt0r/mycelium-embed
 
 Pluggable embedding (and eventually chat) client. One `EmbeddingProvider` interface,
 two implementations:

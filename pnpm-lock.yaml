@@ -45,13 +45,13 @@ importers:
 
   apps/paperless-ngx:
     dependencies:
-      '@mycelium/embed':
+      '@transmitt0r/mycelium-embed':
         specifier: workspace:*
         version: link:../../core/embed
-      '@mycelium/index':
+      '@transmitt0r/mycelium-index':
         specifier: workspace:*
         version: link:../../core/index
-      '@mycelium/mcp':
+      '@transmitt0r/mycelium-mcp':
         specifier: workspace:*
         version: link:../../core/mcp
       openapi-fetch:
@@ -67,7 +67,7 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.4
         version: 2.5.6
-      '@mycelium/openapi-codegen':
+      '@transmitt0r/mycelium-openapi-codegen':
         specifier: workspace:*
         version: link:../../tools/openapi-codegen
       '@types/node':
@@ -91,13 +91,13 @@ importers:
 
   apps/trilium:
     dependencies:
-      '@mycelium/embed':
+      '@transmitt0r/mycelium-embed':
         specifier: workspace:*
         version: link:../../core/embed
-      '@mycelium/index':
+      '@transmitt0r/mycelium-index':
         specifier: workspace:*
         version: link:../../core/index
-      '@mycelium/mcp':
+      '@transmitt0r/mycelium-mcp':
         specifier: workspace:*
         version: link:../../core/mcp
       marked:
@@ -119,7 +119,7 @@ importers:
       '@biomejs/biome':
         specifier: ^2.5.4
         version: 2.5.6
-      '@mycelium/openapi-codegen':
+      '@transmitt0r/mycelium-openapi-codegen':
         specifier: workspace:*
         version: link:../../tools/openapi-codegen
       '@types/node':
@@ -163,7 +163,7 @@ importers:
 
   core/index:
     dependencies:
-      '@mycelium/embed':
+      '@transmitt0r/mycelium-embed':
         specifier: workspace:*
         version: link:../embed
       sqlite-vec:

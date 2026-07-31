@@ -1,5 +1,5 @@
 {
-  "name": "@mycelium/embed",
+  "name": "@transmitt0r/mycelium-embed",
   "version": "0.0.0",
   "description": "Pluggable embedding + chat client for any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, vLLM, LM Studio, ...), with an opt-in local CPU embedding fallback.",
   "type": "module",

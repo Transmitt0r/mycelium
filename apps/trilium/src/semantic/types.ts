@@ -2,7 +2,7 @@
 // results (see src/tools/notes.ts). startLine/endLine let the caller chain
 // straight into trilium_read_note_content instead of only getting matched
 // text with no way to locate it in the note. The store/sync/search engine
-// itself lives in @mycelium/index -- see src/semantic/handle.ts for how
+// itself lives in @transmitt0r/mycelium-index -- see src/semantic/handle.ts for how
 // this plugin wires that up.
 export type SemanticMatch = {
   noteId: string;

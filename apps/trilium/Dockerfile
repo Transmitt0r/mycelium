@@ -1,7 +1,7 @@
 # Standalone MCP server image for trilium (src/mcp-server.ts) -- no
 # OpenClaw involved, see AGENTS.md and README's "Standalone MCP server"
 # section. Build from the *monorepo root* (workspace:* deps need their
-# @mycelium/* siblings, which only exist inside this repo):
+# @transmitt0r/mycelium-* siblings, which only exist inside this repo):
 #
 #   docker build -f apps/trilium/Dockerfile -t trilium-mcp .
 #
@@ -24,8 +24,8 @@ WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @transmitt0r/openclaw-plugin-trilium... run build
-# `deploy` resolves workspace:* deps (@mycelium/embed, @mycelium/index,
-# @mycelium/mcp) into a real, self-contained node_modules -- no symlinks
+# `deploy` resolves workspace:* deps (@transmitt0r/mycelium-embed/index/mcp)
+# into a real, self-contained node_modules -- no symlinks
 # back into /repo, so the runtime stage doesn't need the rest of the
 # monorepo at all. --prod skips devDependencies (vitest, typescript, ...).
 RUN pnpm --filter @transmitt0r/openclaw-plugin-trilium deploy --legacy --prod --child-concurrency=1 /app

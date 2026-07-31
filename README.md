@@ -13,12 +13,12 @@ Three problems, three packages:
 
 | Package | Problem it solves |
 |---|---|
-| [`@mycelium/embed`](./core/embed) | "I want to use any LLM for embeddings/retrieval, not just one hardcoded provider." Pluggable client for any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, vLLM, LM Studio, ...), plus an opt-in local CPU fallback with zero API dependency. |
-| [`@mycelium/index`](./core/index) | "I want semantic search over my personal document/note corpus without running a vector DB server." A local, file-backed sqlite-vec index with incremental sync and hybrid lexical+semantic search (Reciprocal Rank Fusion). |
-| [`@mycelium/mcp`](./core/mcp) | "I want my plugin's tools usable outside one specific agent host." Bridges the same tool definitions onto a standalone MCP server, over stdio and Streamable HTTP. |
+| [`@transmitt0r/mycelium-embed`](./core/embed) | "I want to use any LLM for embeddings/retrieval, not just one hardcoded provider." Pluggable client for any OpenAI-compatible endpoint (OpenAI, OpenRouter, Ollama, vLLM, LM Studio, ...), plus an opt-in local CPU fallback with zero API dependency. |
+| [`@transmitt0r/mycelium-index`](./core/index) | "I want semantic search over my personal document/note corpus without running a vector DB server." A local, file-backed sqlite-vec index with incremental sync and hybrid lexical+semantic search (Reciprocal Rank Fusion). |
+| [`@transmitt0r/mycelium-mcp`](./core/mcp) | "I want my plugin's tools usable outside one specific agent host." Bridges the same tool definitions onto a standalone MCP server, over stdio and Streamable HTTP. |
 
-Plus [`@mycelium/tooling-config`](./tools/tooling-config): shared biome/tsconfig presets, and
-[`@mycelium/openapi-codegen`](./tools/openapi-codegen): shared OpenAPI-schema-to-types codegen
+Plus [`@transmitt0r/mycelium-tooling-config`](./tools/tooling-config): shared biome/tsconfig presets, and
+[`@transmitt0r/mycelium-openapi-codegen`](./tools/openapi-codegen): shared OpenAPI-schema-to-types codegen
 logic used by the plugin apps' own generator scripts. Both published, but enablers rather than
 features in their own right.
 

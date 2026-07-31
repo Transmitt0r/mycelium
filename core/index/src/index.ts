@@ -1,4 +1,4 @@
-import type { EmbeddingProvider } from "@mycelium/embed";
+import type { EmbeddingProvider } from "@transmitt0r/mycelium-embed";
 import { searchSemantic } from "./search.js";
 import { type OpenStoreResult, SemanticIndexStore } from "./store.js";
 import { runIncrementalSync, type SyncLogger, type SyncSummary } from "./sync.js";

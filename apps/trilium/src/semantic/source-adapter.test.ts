@@ -1,4 +1,4 @@
-import { DEFAULT_SEMANTIC_INDEX_CONFIG } from "@mycelium/index";
+import { DEFAULT_SEMANTIC_INDEX_CONFIG } from "@transmitt0r/mycelium-index";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTriliumClient } from "../client.js";
 import { createTriliumSourceAdapter } from "./source-adapter.js";

@@ -1,10 +1,10 @@
-import { DEFAULT_SEMANTIC_INDEX_CONFIG, type SourceAdapter } from "@mycelium/index";
+import { DEFAULT_SEMANTIC_INDEX_CONFIG, type SourceAdapter } from "@transmitt0r/mycelium-index";
 import type { TriliumClient } from "../client.js";
 import { unwrap } from "../client.js";
 import { htmlToMarkdown, normalizeLineEndings } from "../tools/html.js";
 import { INDEXABLE_TYPES_FILTER } from "./query.js";
 
-// One ETAPI page's `limit` -- matches @mycelium/index's own default
+// One ETAPI page's `limit` -- matches @transmitt0r/mycelium-index's own default
 // maxItemsPerSync, so a normal sync pass fits in a single request; the
 // paging loop below only kicks in for a larger first backfill or if a host
 // raises maxItemsPerSync past this.
@@ -12,14 +12,14 @@ const PAGE_SIZE = DEFAULT_SEMANTIC_INDEX_CONFIG.maxItemsPerSync;
 
 type NoteRow = { noteId: string; type: string; blobId: string; utcDateModified: string };
 
-// The single trilium-specific piece bridging its ETAPI to @mycelium/index's
+// The single trilium-specific piece bridging its ETAPI to @transmitt0r/mycelium-index's
 // generic SourceAdapter contract. Trilium's /notes search has no
 // offset/cursor param, only a flat `limit` -- so this pages by re-querying
 // with an advancing `note.utcDateModified >= <cursor>` filter instead (`>=`
 // not `>`, same reason as the watermark itself: Trilium can stamp the same
 // utcDateModified on multiple notes touched by one bulk edit, and there's
 // no secondary sort key to break that tie deterministically -- re-seeing a
-// boundary note is harmless, since @mycelium/index's own contentHash
+// boundary note is harmless, since @transmitt0r/mycelium-index's own contentHash
 // short-circuit makes it a no-op). Stops once a page comes back smaller
 // than PAGE_SIZE (genuinely caught up) or the cursor fails to advance
 // (every remaining note is tied at the exact same instant -- no further
@@ -29,7 +29,7 @@ type NoteRow = { noteId: string; type: string; blobId: string; utcDateModified: 
 // for free -- so unlike paperless-ngx's adapter, this never needs to fetch
 // a note's content just to detect that it hasn't changed. `type` (needed by
 // fetchContent to know whether a note is CKEditor HTML or raw source) isn't
-// part of @mycelium/index's SourceAdapter contract, so it's cached here the
+// part of @transmitt0r/mycelium-index's SourceAdapter contract, so it's cached here the
 // same way paperless-ngx's adapter caches content -- populated per note in
 // listChanged, consumed and cleared in fetchContent.
 export function createTriliumSourceAdapter(

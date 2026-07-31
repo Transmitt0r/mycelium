@@ -69,7 +69,7 @@ const configSchema = Type.Object({
             "never needs its own backup strategy beyond copying this one file.",
         }),
       ),
-      // Powered by @mycelium/embed -- any OpenAI-compatible /v1/embeddings
+      // Powered by @transmitt0r/mycelium-embed -- any OpenAI-compatible /v1/embeddings
       // endpoint (OpenAI, OpenRouter, Ollama, vLLM, LM Studio, ...), or an
       // opt-in local CPU model. Without baseUrl+apiKey+model+dimensions (or
       // provider: "local"), the semantic index simply never comes up and
@@ -81,7 +81,7 @@ const configSchema = Type.Object({
             Type.Union([Type.Literal("openai-compatible"), Type.Literal("local")], {
               description:
                 'Embedding backend to use. Defaults to "openai-compatible". "local" runs a small ' +
-                "ONNX model on-CPU via @mycelium/embed, with zero API dependency, but is never " +
+                "ONNX model on-CPU via @transmitt0r/mycelium-embed, with zero API dependency, but is never " +
                 "chosen automatically -- opt in explicitly if you want note content to never leave " +
                 "the machine.",
             }),

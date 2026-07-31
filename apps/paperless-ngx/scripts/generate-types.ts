@@ -3,7 +3,7 @@
  * instance's OpenAPI schema. Requires PAPERLESS_URL and PAPERLESS_TOKEN in
  * the environment (or a .env file loaded by the caller).
  */
-import { curlToFile, generateTypes } from "@mycelium/openapi-codegen";
+import { curlToFile, generateTypes } from "@transmitt0r/mycelium-openapi-codegen";
 
 const baseUrl = process.env.PAPERLESS_URL;
 const token = process.env.PAPERLESS_TOKEN;

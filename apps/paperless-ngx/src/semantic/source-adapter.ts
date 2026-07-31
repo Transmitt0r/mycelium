@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { SourceAdapter } from "@mycelium/index";
+import type { SourceAdapter } from "@transmitt0r/mycelium-index";
 import type { PaperlessClient } from "../client.js";
 import { unwrap } from "../client.js";
 import { MAX_PAGE_SIZE } from "../tools/pagination.js";

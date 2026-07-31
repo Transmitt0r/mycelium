@@ -1,5 +1,5 @@
 {
-  "name": "@mycelium/index",
+  "name": "@transmitt0r/mycelium-index",
   "version": "0.0.0",
   "description": "Local-first semantic index: sqlite-vec vector store, incremental content-hash sync, and hybrid lexical/semantic search via Reciprocal Rank Fusion.",
   "type": "module",
@@ -35,7 +35,7 @@
     "rrf"
   ],
   "dependencies": {
-    "@mycelium/embed": "workspace:*",
+    "@transmitt0r/mycelium-embed": "workspace:*",
     "sqlite-vec": "^0.1.9"
   },
   "devDependencies": {

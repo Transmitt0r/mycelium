@@ -45,7 +45,7 @@ jobs:
 
       # One-time setup before this works: configure npm trusted publishing
       # (npmjs.com -> package -> Settings -> Trusted Publisher) for each
-      # @mycelium/* package, pointing at this repo + workflow.
+      # @transmitt0r/mycelium-* package, pointing at this repo + workflow.
       - uses: changesets/action@v1
         with:
           publish: pnpm run release

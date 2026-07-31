@@ -1,4 +1,4 @@
-# @mycelium/index
+# @transmitt0r/mycelium-index
 
 A local, file-backed semantic index for personal-scale document/note corpora
 (thousands, not millions, of chunks). Generalizes the `semantic/` module shared
@@ -17,8 +17,8 @@ almost line-for-line by the paperless-ngx and trilium OpenClaw plugins.
 ## Usage
 
 ```ts
-import { openSemanticIndex } from "@mycelium/index";
-import { createEmbeddingProvider } from "@mycelium/embed";
+import { openSemanticIndex } from "@transmitt0r/mycelium-index";
+import { createEmbeddingProvider } from "@transmitt0r/mycelium-embed";
 
 const result = await openSemanticIndex({
   embeddingProvider: createEmbeddingProvider({

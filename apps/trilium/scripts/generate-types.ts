@@ -22,7 +22,7 @@
  * Usage: pnpm run generate:types -- v0.104.1
  * (defaults to the version below if no tag is given)
  */
-import { curlToFile, generateTypes } from "@mycelium/openapi-codegen";
+import { curlToFile, generateTypes } from "@transmitt0r/mycelium-openapi-codegen";
 
 const DEFAULT_TAG = "v0.104.1";
 const tag = process.argv[2] ?? DEFAULT_TAG;

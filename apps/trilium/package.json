@@ -59,9 +59,9 @@
     }
   },
   "dependencies": {
-    "@mycelium/embed": "workspace:*",
-    "@mycelium/index": "workspace:*",
-    "@mycelium/mcp": "workspace:*",
+    "@transmitt0r/mycelium-embed": "workspace:*",
+    "@transmitt0r/mycelium-index": "workspace:*",
+    "@transmitt0r/mycelium-mcp": "workspace:*",
     "marked": "^18.0.7",
     "node-html-markdown": "^2.0.0",
     "openapi-fetch": "^0.17.0",
@@ -69,7 +69,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
-    "@mycelium/openapi-codegen": "workspace:*",
+    "@transmitt0r/mycelium-openapi-codegen": "workspace:*",
     "@types/node": "^26.1.1",
     "openapi-typescript": "^7.13.0",
     "semantic-release": "^25.0.8",

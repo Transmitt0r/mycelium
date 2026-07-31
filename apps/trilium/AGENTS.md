@@ -10,12 +10,12 @@
 - `src/tools/html.ts` — shared HTML<->plain-text conversion and bounded line-range reading, used by every content-reading/writing tool
 - `src/client.ts` — typed Trilium ETAPI client
 - `src/generated/trilium-schema.d.ts` — generated, do not hand-edit (see CONTRIBUTING.md)
-- `src/semantic/` — wires `@mycelium/embed` (pluggable embedding provider) and `@mycelium/index`
+- `src/semantic/` — wires `@transmitt0r/mycelium-embed` (pluggable embedding provider) and `@transmitt0r/mycelium-index`
   (the actual store/sync/search engine) together for this plugin; `source-adapter.ts` is the only
-  trilium-specific piece (implements `@mycelium/index`'s `SourceAdapter`), and `query.ts` strips
+  trilium-specific piece (implements `@transmitt0r/mycelium-index`'s `SourceAdapter`), and `query.ts` strips
   Trilium's query-language operators out of a `search` string before anything gets embedded. Don't
   reintroduce a local sqlite-vec/embedding-provider implementation here — that duplication is
-  exactly what got extracted into `@mycelium/*`.
+  exactly what got extracted into `@transmitt0r/mycelium-*`.
 - `src/semantic/handle.ts` (`createSemanticSearchCore`) has **zero `openclaw` imports, not even type
   imports** — verified by `pnpm run build` then `grep -rln 'from "openclaw' dist/` (should only ever
   print `dist/index.js` and `dist/semantic/handle-openclaw.js`). `src/semantic/handle-openclaw.ts` is
@@ -24,7 +24,7 @@
   directly. If you add an `api.*` read to make semantic search do something new, it goes in
   `handle-openclaw.ts`, never in `handle.ts` — that's what keeps `openclaw` out of the standalone
   server's dependency tree (see `peerDependenciesMeta.openclaw.optional` in `package.json`).
-- `src/mcp-server.ts` — standalone MCP server entrypoint on `@mycelium/mcp` (stdio/HTTP), configured
+- `src/mcp-server.ts` — standalone MCP server entrypoint on `@transmitt0r/mycelium-mcp` (stdio/HTTP), configured
   via env vars instead of `openclaw.json` (see README's "Standalone MCP server" section). Tool
   factories (`src/tools/*.ts`) are reused unmodified from the OpenClaw plugin path — they were never
   OpenClaw-coupled to begin with. `src/mcp-server-config.ts` holds the (tested) env-var parsing.
@@ -51,7 +51,7 @@
   `src/semantic/source-adapter.ts`'s `listChanged` pages around this by re-querying with an
   advancing `utcDateModified >= <cursor>` filter — read its doc comment before changing that logic.
 - **`blobId` is a free content hash**: every note in a search response already carries `blobId`, so
-  it's used directly as `@mycelium/index`'s `contentHash` — an unchanged note's content never needs
+  it's used directly as `@transmitt0r/mycelium-index`'s `contentHash` — an unchanged note's content never needs
   to be fetched during sync. Don't reintroduce a fetch-then-hash pattern (that's paperless-ngx's
   adapter, which has no equivalent field to use instead).
 - **No batch note-fetch endpoint**: unlike paperless-ngx's `id__in`, ETAPI has nothing like

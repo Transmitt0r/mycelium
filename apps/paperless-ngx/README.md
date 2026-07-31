@@ -76,7 +76,7 @@ OCR content and your search terms are sent to whatever endpoint you configure to
 same way it fails open if the embedding endpoint is unreachable, rate limits you, or errors for any
 other reason.
 
-Powered by [`@mycelium/embed`](https://www.npmjs.com/package/@mycelium/embed): any OpenAI-compatible
+Powered by [`@transmitt0r/mycelium-embed`](https://www.npmjs.com/package/@transmitt0r/mycelium-embed): any OpenAI-compatible
 `/v1/embeddings` endpoint works — OpenAI, [OpenRouter](https://openrouter.ai), Ollama, vLLM, LM
 Studio, and so on. `baseUrl`, `apiKey`, `model`, and `dimensions` are all required (models vary by
 endpoint, so there's no universal default to fall back to):
@@ -124,7 +124,7 @@ off or move where its local index file lives:
 ## Standalone MCP server
 
 These tools also run outside OpenClaw entirely, as an ordinary [MCP](https://modelcontextprotocol.io)
-server (stdio or Streamable HTTP), via [`@mycelium/mcp`](https://www.npmjs.com/package/@mycelium/mcp).
+server (stdio or Streamable HTTP), via [`@transmitt0r/mycelium-mcp`](https://www.npmjs.com/package/@transmitt0r/mycelium-mcp).
 Useful for any MCP client -- Claude Desktop, Claude Code, etc. -- not just OpenClaw.
 
 Configuration is env vars instead of `openclaw.json`:

@@ -8,8 +8,8 @@ packages:
 # here's own dependencies -- they get installed locally because pnpm's
 # autoInstallPeers resolves openclaw for local dev/typechecking. esbuild is
 # there via vite/vitest; sqlite-vec ships a platform-specific native binary
-# for @mycelium/index's vector store; onnxruntime-node/sharp are
-# @huggingface/transformers' native deps for @mycelium/embed's local provider.
+# for @transmitt0r/mycelium-index's vector store; onnxruntime-node/sharp are
+# @huggingface/transformers' native deps for @transmitt0r/mycelium-embed's local provider.
 allowBuilds:
   '@google/genai': true
   esbuild: true

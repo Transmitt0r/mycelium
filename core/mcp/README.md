@@ -1,4 +1,4 @@
-# @mycelium/mcp
+# @transmitt0r/mycelium-mcp
 
 Turns a set of agent-tool factories into a standalone MCP server — stdio and Streamable
 HTTP both — without rewriting the tools themselves.
@@ -11,7 +11,7 @@ between the two — not a reimplementation of either.
 ## Usage
 
 ```ts
-import { createMcpServer, serveStdio, serveHttp } from "@mycelium/mcp";
+import { createMcpServer, serveStdio, serveHttp } from "@transmitt0r/mycelium-mcp";
 
 const server = createMcpServer(myTools, { name: "my-plugin", version: "1.0.0" });
 

@@ -1,5 +1,5 @@
 {
-  "name": "@mycelium/openapi-codegen",
+  "name": "@transmitt0r/mycelium-openapi-codegen",
   "version": "0.0.0",
   "description": "Fetch an OpenAPI schema and generate TypeScript types from it — fetch-to-tempfile lifecycle plus an isolated openapi-typescript run, so callers only supply their own schema-fetching logic.",
   "type": "module",

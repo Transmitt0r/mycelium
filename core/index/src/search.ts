@@ -1,4 +1,4 @@
-import type { EmbeddingProvider } from "@mycelium/embed";
+import type { EmbeddingProvider } from "@transmitt0r/mycelium-embed";
 import type { SemanticIndexStore } from "./store.js";
 import type { SemanticMatch } from "./types.js";
 
@@ -30,7 +30,7 @@ export async function searchSemantic(
     return await withTimeout(runQuery(deps, searchTerm, limit), deps.queryTimeoutMs);
   } catch (err) {
     deps.logger?.warn(
-      `@mycelium/index: query failed, falling back to lexical-only results: ${describeError(err)}`,
+      `@transmitt0r/mycelium-index: query failed, falling back to lexical-only results: ${describeError(err)}`,
     );
     return [];
   }

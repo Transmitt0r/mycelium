@@ -85,7 +85,7 @@ describe("createSemanticSearchHandle", () => {
     // node:sqlite + sqlite-vec are both available in this test environment,
     // so the index itself should come up. This never makes a real network
     // call: search(undefined) no-ops before ever reaching the embedding
-    // provider (see @mycelium/index's own no-op-on-empty-term coverage),
+    // provider (see @transmitt0r/mycelium-index's own no-op-on-empty-term coverage),
     // and no sync pass is awaited here.
     expect(handle.available).toBe(true);
     expect(await handle.search(undefined, 5)).toEqual([]);

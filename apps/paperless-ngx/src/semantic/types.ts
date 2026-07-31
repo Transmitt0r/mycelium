@@ -1,5 +1,5 @@
 // The agent-facing contract paperless_search_documents merges into its
-// lexical results (see src/tools/documents.ts). @mycelium/index's own
+// lexical results (see src/tools/documents.ts). @transmitt0r/mycelium-index's own
 // SemanticMatch uses a string sourceId (source-agnostic); this plugin's
 // document ids are numbers, so handle.ts adapts between the two at the
 // boundary rather than pushing string ids through documents.ts's

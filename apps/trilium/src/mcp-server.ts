@@ -7,7 +7,7 @@ import {
   type HttpServerHandle,
   serveHttp,
   serveStdio,
-} from "@mycelium/mcp";
+} from "@transmitt0r/mycelium-mcp";
 import { createTriliumClient, type TriliumClientHandle } from "./client.js";
 import { readStandaloneConfig, readTransportConfig } from "./mcp-server-config.js";
 import { createSemanticSearchCore, type Logger } from "./semantic/handle.js";

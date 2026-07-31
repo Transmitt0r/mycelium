@@ -9,11 +9,11 @@
 - `src/tools/` — one file per tool group (documents, taxonomy, relations, pagination)
 - `src/client.ts` — typed paperless-ngx API client
 - `src/generated/paperless-schema.d.ts` — generated, do not hand-edit (see CONTRIBUTING.md)
-- `src/semantic/` — wires `@mycelium/embed` (pluggable embedding provider) and `@mycelium/index`
+- `src/semantic/` — wires `@transmitt0r/mycelium-embed` (pluggable embedding provider) and `@transmitt0r/mycelium-index`
   (the actual store/sync/search engine) together for this plugin; `source-adapter.ts` is the only
-  paperless-specific piece (implements `@mycelium/index`'s `SourceAdapter`). Don't reintroduce a
+  paperless-specific piece (implements `@transmitt0r/mycelium-index`'s `SourceAdapter`). Don't reintroduce a
   local sqlite-vec/embedding-provider implementation here — that duplication is exactly what got
-  extracted into `@mycelium/*`.
+  extracted into `@transmitt0r/mycelium-*`.
 - `src/semantic/handle.ts` (`createSemanticSearchCore`) has **zero `openclaw` imports, not even type
   imports** — verified by `pnpm run build` then `grep -rln 'from "openclaw' dist/` (should only ever
   print `dist/index.js` and `dist/semantic/handle-openclaw.js`). `src/semantic/handle-openclaw.ts` is
@@ -22,7 +22,7 @@
   directly. If you add an `api.*` read to make semantic search do something new, it goes in
   `handle-openclaw.ts`, never in `handle.ts` — that's what keeps `openclaw` out of the standalone
   server's dependency tree (see `peerDependenciesMeta.openclaw.optional` in `package.json`).
-- `src/mcp-server.ts` — standalone MCP server entrypoint on `@mycelium/mcp` (stdio/HTTP), configured
+- `src/mcp-server.ts` — standalone MCP server entrypoint on `@transmitt0r/mycelium-mcp` (stdio/HTTP), configured
   via env vars instead of `openclaw.json` (see README's "Standalone MCP server" section). Tool
   factories (`src/tools/*.ts`) are reused unmodified from the OpenClaw plugin path — they were never
   OpenClaw-coupled to begin with. `src/mcp-server-config.ts` holds the (tested) env-var parsing.

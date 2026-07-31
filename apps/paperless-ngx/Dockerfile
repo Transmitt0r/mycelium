@@ -1,7 +1,7 @@
 # Standalone MCP server image for paperless-ngx (src/mcp-server.ts) --
 # no OpenClaw involved, see AGENTS.md and README's "Standalone MCP server"
 # section. Build from the *monorepo root* (workspace:* deps need their
-# @mycelium/* siblings, which only exist inside this repo):
+# @transmitt0r/mycelium-* siblings, which only exist inside this repo):
 #
 #   docker build -f apps/paperless-ngx/Dockerfile -t paperless-ngx-mcp .
 #
@@ -24,8 +24,8 @@ WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @transmitt0r/openclaw-plugin-paperless-ngx... run build
-# `deploy` resolves workspace:* deps (@mycelium/embed, @mycelium/index,
-# @mycelium/mcp) into a real, self-contained node_modules -- no symlinks
+# `deploy` resolves workspace:* deps (@transmitt0r/mycelium-embed/index/mcp)
+# into a real, self-contained node_modules -- no symlinks
 # back into /repo, so the runtime stage doesn't need the rest of the
 # monorepo at all. --prod skips devDependencies (vitest, typescript, ...).
 RUN pnpm --filter @transmitt0r/openclaw-plugin-paperless-ngx deploy --legacy --prod /app

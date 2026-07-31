@@ -41,7 +41,7 @@ const VEC_TABLE = "semantic_chunks_vec";
 
 function assertValidDimensions(dimensions: number): void {
   if (!Number.isInteger(dimensions) || dimensions <= 0) {
-    throw new Error(`@mycelium/index: invalid embedding dimensions (${dimensions})`);
+    throw new Error(`@transmitt0r/mycelium-index: invalid embedding dimensions (${dimensions})`);
   }
 }
 

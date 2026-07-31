@@ -2,12 +2,12 @@ import {
   createEmbeddingProvider,
   type EmbeddingProvider,
   type EmbeddingProviderConfig,
-} from "@mycelium/embed";
+} from "@transmitt0r/mycelium-embed";
 import {
   DEFAULT_SEMANTIC_INDEX_CONFIG,
   openSemanticIndex,
   type SemanticIndex,
-} from "@mycelium/index";
+} from "@transmitt0r/mycelium-index";
 import type { PaperlessClientHandle } from "../client.js";
 import { createPaperlessSourceAdapter } from "./source-adapter.js";
 import type { SemanticMatch } from "./types.js";
@@ -20,7 +20,7 @@ import type { SemanticMatch } from "./types.js";
 // ./handle-openclaw.ts instead -- see its own comment.
 
 // How often a background incremental sync pass runs. Not part of
-// @mycelium/index's own config surface -- it doesn't manage scheduling
+// @transmitt0r/mycelium-index's own config surface -- it doesn't manage scheduling
 // itself, the host does.
 const SYNC_INTERVAL_MS = 15 * 60_000;
 
@@ -74,7 +74,7 @@ function unavailableHandle(): SemanticSearchHandle {
 }
 
 // Everything the setup logic below needs from whatever is hosting it.
-// @mycelium/index and @mycelium/embed already have no OpenClaw dependency;
+// @transmitt0r/mycelium-index and @transmitt0r/mycelium-embed already have no OpenClaw dependency;
 // this is the seam that keeps this module the same way.
 export type SemanticSearchHostDeps = {
   config: SemanticSearchPluginConfig | undefined;

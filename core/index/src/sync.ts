@@ -1,4 +1,4 @@
-import type { EmbeddingProvider } from "@mycelium/embed";
+import type { EmbeddingProvider } from "@transmitt0r/mycelium-embed";
 import { chunkText } from "./chunking.js";
 import { runWithConcurrency } from "./host.js";
 import type { SourceAdapter } from "./index.js";
@@ -111,7 +111,7 @@ async function processPage<TId extends string | number>(
     } catch (err) {
       summary.failed += 1;
       logger?.warn(
-        `@mycelium/index: failed to index ${sourceId}: ${err instanceof Error ? err.message : String(err)}`,
+        `@transmitt0r/mycelium-index: failed to index ${sourceId}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   });

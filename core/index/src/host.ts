@@ -13,7 +13,7 @@ export function requireNodeSqlite(): typeof import("node:sqlite") {
     return createRequire(import.meta.url)("node:sqlite");
   } catch (err) {
     throw new Error(
-      `@mycelium/index requires Node's built-in node:sqlite module (run under Node, not Bun): ${err instanceof Error ? err.message : String(err)}`,
+      `@transmitt0r/mycelium-index requires Node's built-in node:sqlite module (run under Node, not Bun): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 }
