@@ -10,13 +10,16 @@
 # best-effort and never fail the overall semantic-release run because of
 # it -- a ClawHub-side failure here must not block the GitHub release
 # (@semantic-release/github's publish step, which runs after this one)
-# from being created. Confirmed live on 2026-07-31: ClawHub's own
-# internal `npm pack` invocation failed ("npm pack did not return a
-# tarball filename") on a real CI run even though a local repro of the
-# previously-suspected cause (a leftover, unresolved-token .npmrc from
-# actions/setup-node's registry-url) came back clean -- so the local
-# repro didn't match the real failure mode, and this remains an
-# unresolved, unpredictable upstream issue.
+# from being created.
+#
+# Root cause of the "npm pack did not return a tarball filename" failure
+# hit live on 2026-07-31: npm 12.0.0 (2026-07-08) changed `npm pack
+# --json`'s output from a top-level array to an object keyed by package
+# name; ClawHub CLI v0.23.1's own npm-pack invocation reads
+# `npmOutput[0]?.filename`, which silently breaks against the new shape.
+# Fixed at the source by pinning release-apps.yml's npm install to the
+# 11.x line instead of @latest -- kept best-effort here anyway as
+# defense-in-depth against whatever ClawHub or npm break next.
 set -uo pipefail
 
 npx --yes clawhub login --token "$CLAWHUB_API_KEY" --no-browser

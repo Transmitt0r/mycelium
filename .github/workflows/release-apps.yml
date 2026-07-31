@@ -50,7 +50,13 @@ jobs:
       # Trusted publishing requires npm CLI >=11.5.1; the version bundled
       # with a given Node release can lag behind that, so pin explicitly
       # rather than relying on whatever setup-node happens to install.
-      - run: npm install -g npm@latest
+      # Stick to the 11.x line, not @latest: npm 12.0.0 (2026-07-08) changed
+      # `npm pack --json`'s output from a top-level array to an object keyed
+      # by package name, which broke ClawHub CLI v0.23.1's own npm-pack
+      # invocation ("npm pack did not return a tarball filename" -- it reads
+      # `npmOutput[0]?.filename`, confirmed by reading ClawHub's own source).
+      # >=11.5.1 already satisfies the trusted-publishing requirement.
+      - run: npm install -g npm@^11
 
       # semantic-release-monorepo (see apps/${{ matrix.app }}/.releaserc.json's
       # "extends") filters commits/tags to this app's own directory, so
