@@ -1,6 +1,6 @@
 {
   "name": "@transmitt0r/openclaw-plugin-onepassword",
-  "version": "0.0.0-development",
+  "version": "0.1.3",
   "description": "OpenClaw plugin — 1Password secret provider integration",
   "type": "module",
   "license": "MIT",
