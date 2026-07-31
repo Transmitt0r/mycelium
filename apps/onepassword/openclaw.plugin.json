@@ -2,7 +2,7 @@
   "id": "onepassword",
   "name": "1Password",
   "description": "1Password secret provider integration for OpenClaw — batch-resolves secrets from your vaults via the op CLI.",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

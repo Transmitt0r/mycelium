@@ -61,19 +61,23 @@ per app. Since all three apps (and `core/*`/`tools/*`) now share one git history
 semantic-release-monorepo` in `.releaserc.json` scopes commit analysis and the release tag
 (`@transmitt0r/openclaw-plugin-paperless-ngx-v<version>`, not the default `v<version>`) to just
 this package's own directory. It computes the next version from commits since that tag, publishes
-to npm (via trusted OIDC publishing — no token secret), publishes to ClawHub (via
-`scripts/publish-to-clawhub.sh` at the repo root, run as this app's `@semantic-release/exec`
-`publishCmd` — only invoked once semantic-release has actually decided to publish a release), and
-creates a GitHub release with generated notes.
+to npm (via trusted OIDC publishing — no token secret), publishes to ClawHub, and creates a GitHub
+release with generated notes.
 
-ClawHub publishing needs a `CLAWHUB_API_KEY` repo secret (a maintainer's ClawHub token), and is
-best-effort: a ClawHub-side failure logs a `::warning::` (see `scripts/publish-to-clawhub.sh`) but
-never blocks the npm publish or GitHub release. It's failed twice so far for two different reasons
-— a leftover, unresolved-token `.npmrc` from `actions/setup-node`'s `registry-url` (no longer
-relevant now that `release-apps.yml` never sets `registry-url`), and npm 12.0.0 changing
-`npm pack --json`'s output shape in a way ClawHub CLI v0.23.1's own npm-pack invocation doesn't
-handle (fixed by pinning `release-apps.yml`'s npm install to the 11.x line — see that workflow's
-comments). If it fails again, `clawhub package publish . --family code-plugin` run manually from
+Two `@semantic-release/exec` hooks run as part of this (see this app's `.releaserc.json`):
+`prepareCmd` runs `scripts/sync-openclaw-plugin-version.sh` right after `@semantic-release/npm`'s
+own `prepare` step has bumped `package.json`'s version, keeping `openclaw.plugin.json`'s `version`
+field in sync so the published npm/ClawHub tarballs never carry a stale one (ClawHub's package
+validator flags a mismatch as `package-manifest-version-drift`). `publishCmd` runs
+`scripts/publish-to-clawhub.sh` — needs a `CLAWHUB_API_KEY` repo secret (a maintainer's ClawHub
+token) — and is best-effort: a ClawHub-side failure logs a `::warning::` but never blocks the npm
+publish or GitHub release. It's failed twice so far, for two different reasons — a leftover,
+unresolved-token `.npmrc` from `actions/setup-node`'s `registry-url` (no longer relevant now that
+`release-apps.yml` never sets `registry-url`), and npm 12.0.0 changing `npm pack --json`'s output
+shape in a way ClawHub CLI v0.23.1's own npm-pack invocation doesn't handle (fixed by pinning
+`release-apps.yml`'s npm install to the 11.x line — see that workflow's comments; confirmed live via
+`@transmitt0r/openclaw-plugin-onepassword@0.1.5`, the first release to publish to ClawHub
+successfully). If it fails again, `clawhub package publish . --family code-plugin` run manually from
 this directory is the fallback.
 
 ### Bootstrapping a brand-new package
