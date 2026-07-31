@@ -70,6 +70,7 @@
     "@types/node": "^26.1.1",
     "openapi-typescript": "^7.13.0",
     "semantic-release": "^25.0.8",
+    "semantic-release-monorepo": "^8.0.2",
     "tsx": "^4.23.1",
     "typescript": "7.0.2",
     "vitest": "^4.1.10"

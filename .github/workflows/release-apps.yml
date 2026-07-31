@@ -1,8 +1,10 @@
-name: Release
+name: Release Apps
 
 on:
   push:
     branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 permissions:
   contents: read
@@ -10,6 +12,12 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    strategy:
+      # Each app releases independently -- one failing (or one with nothing
+      # to release) must not stop the others.
+      fail-fast: false
+      matrix:
+        app: [paperless-ngx, trilium, onepassword]
     permissions:
       contents: write # to publish a GitHub release and push the release tag
       issues: write # to comment on released issues
@@ -19,7 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # semantic-release needs full tag history
+          fetch-depth: 0 # semantic-release-monorepo needs full history to
+          # scope commits/tags to this app's own path
 
       - uses: pnpm/action-setup@v6
 
@@ -32,17 +41,24 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Builds every workspace package, including this app's
+      # @transmitt0r/mycelium-* workspace dependencies -- @semantic-release/npm
+      # publishes whatever `files` in package.json points at (dist/), which
+      # only exists after a real build.
       - run: pnpm run build
-
-      - run: pnpm run lint
-
-      - run: pnpm run test
 
       # Trusted publishing requires npm CLI >=11.5.1; the version bundled
       # with a given Node release can lag behind that, so pin explicitly
       # rather than relying on whatever setup-node happens to install.
       - run: npm install -g npm@latest
 
-      - run: pnpm exec semantic-release
+      # semantic-release-monorepo (see apps/${{ matrix.app }}/.releaserc.json's
+      # "extends") filters commits/tags to this app's own directory, so
+      # running from apps/${{ matrix.app }} against the shared repo history
+      # (all three apps + core/tools share one git log since the
+      # git-subtree merge) only considers this app's own commits.
+      - name: Release
+        working-directory: apps/${{ matrix.app }}
+        run: pnpm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
