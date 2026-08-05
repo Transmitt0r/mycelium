@@ -291,27 +291,30 @@ export async function serveHttp(
 
         // Each request is independent and self-contained: a fresh McpServer +
         // fresh stateless transport, connected for the duration of this one
-        // request and torn down when its response completes.
+        // request and torn down when its response completes. The teardown is
+        // armed *before* any async work so a client abort at any point (even
+        // mid-connect) still releases the instance.
         const server = createServer();
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        res.once("close", () => {
+          // On completion (success OR reset by the client), release the
+          // per-request instance so nothing pins memory between requests.
+          // Idempotent: double close is a no-op.
+          void transport.close().catch(() => {});
+          void server.close().catch(() => {});
+        });
         server
           .connect(transport)
           .then(() => {
             // The client may have aborted (or the server begun shutting down)
-            // while connect() was in flight — its `close` already scheduled the
-            // teardown below. Don't hand the request to a transport we just
+            // while connect() was in flight — its `close` already ran the
+            // teardown above. Don't hand the request to a transport we just
             // closed: that would surface a spurious error through onServerError
             // for a request whose response is already gone.
             if (res.closed || res.destroyed) return;
             return transport.handleRequest(req, res);
           })
           .catch(respondWithError(res, options.onServerError));
-        // On response completion (success OR reset by the client), release the
-        // per-request instance so nothing pins memory between requests.
-        res.once("close", () => {
-          void transport.close().catch(() => {});
-          void server.close().catch(() => {});
-        });
       } catch (err) {
         // Never let a malformed request crash the process, and never leak internals.
         if (!res.headersSent) res.writeHead(500);
