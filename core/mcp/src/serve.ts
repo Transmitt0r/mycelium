@@ -303,7 +303,11 @@ export async function serveHttp(
       const seen = lastSeen.get(id) ?? 0;
       const open = (openResponses.get(id) ?? 0) > 0;
       if (!open && now - seen > sessionIdleTimeoutMs) {
-        void transport.close().catch(() => {});
+        void transport
+          .close()
+          .catch((err) =>
+            options.onServerError?.(err instanceof Error ? err : new Error(String(err))),
+          );
       }
     }
   }
@@ -373,7 +377,9 @@ export async function serveHttp(
 
         // No session id → a fresh (initialize) session is being attempted. Reserve
         // a slot synchronously (same tick), so parallel initialize requests can't
-        // all slip past the cap before any completion is counted.
+        // all slip past the cap before any completion is counted. The reservation
+        // is released via the transport's onclose once it exists; if construction
+        // itself throws below, the catch releases it so no slot ever leaks.
         if (sessions >= maxSessions) {
           res.writeHead(503).end();
           return;
@@ -384,21 +390,35 @@ export async function serveHttp(
         // initialize it assigns the session id and registers itself. If it turns
         // out not to be (malformed JSON-RPC, stale id without a header, etc.) the
         // transport is never registered — tear it down so it can't leak.
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (id) => {
-            transports.set(id, transport);
-            lastSeen.set(id, Date.now());
-            // The (possibly SSE) initialize response stays open for the session's
-            // life — count it so the reaper won't harvest a freshly-open session.
-            trackOpen(id, res);
-          },
-        });
+        let transport: StreamableHTTPServerTransport;
+        try {
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: (id) => {
+              transports.set(id, transport);
+              lastSeen.set(id, Date.now());
+              // The (possibly SSE) initialize response stays open for the session's
+              // life — count it so the reaper won't harvest a freshly-open session.
+              trackOpen(id, res);
+            },
+          });
+        } catch (err) {
+          // Construction failed before onclose could own the reservation — release
+          // the slot now, then let the outer handler respond 500.
+          sessions--;
+          throw err;
+        }
         // Releasing the reserved slot (and any registered session) is the transport's
         // onclose hook — the single point every teardown path funnels through. The
         // SDK's close() is NOT idempotent (each call re-fires onclose), so guard the
         // bookkeeping against a double-close (DELETE teardown + handle.close(), etc.)
         // which would otherwise drift `sessions` negative and disarm the cap.
+        //
+        // NOTE: this relies on Protocol.connect (SDK ≥1.30 chains it; verified) reading
+        // the transport's existing onclose and chaining it rather than overwriting it.
+        // If a future SDK stops chaining, sessions-- would never run and the cap would
+        // silently stick at maxSessions — the DELETE-reconnect and idle-reap tests in
+        // serve.test.ts guard specifically against that regression.
         let released = false;
         // Declared before onclose: a synchronous teardown in the factory-fail path
         // (`transport.close()` while `server` is still unassigned) must read the
@@ -481,9 +501,12 @@ export async function serveHttp(
       if (idleTimer) clearInterval(idleTimer);
       await Promise.allSettled([...transports.values()].map((t) => t.close()));
       transports.clear();
-      await new Promise<void>((resolve, reject) =>
-        httpServer.close((err) => (err ? reject(err) : resolve())),
-      );
+      // httpServer.close() waits for all connections. Idle keep-alive sockets
+      // held open by clients would otherwise block shutdown, so close them.
+      await new Promise<void>((resolve, reject) => {
+        httpServer.close((err) => (err ? reject(err) : resolve()));
+        httpServer.closeIdleConnections?.();
+      });
     },
   };
 }

@@ -454,6 +454,29 @@ describe("serveHttp multi-session", () => {
     expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
     await client.close();
   });
+
+  test("a request that never initializes a session releases its reserved slot", async () => {
+    // A garbage POST (no mcp-session-id, unparseable body) never initializes. It
+    // must not pin the single slot: after it settles, a real client fits again.
+    const handle = await serveHttp(makeServer, { port: 0, maxSessions: 1 });
+    handles.push(handle);
+
+    const bad = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: "this is not json",
+    });
+    // It was accepted (slot was free), handled, and its slot released — not capped.
+    expect(bad.status).not.toBe(503);
+
+    // The freed slot must admit a real client.
+    const client = await connectClient(handle.port);
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+    await client.close();
+  });
 });
 
 // Send a request with an arbitrary Host/Origin header (http.request allows
