@@ -116,9 +116,10 @@ function parseHostList(env: NodeJS.ProcessEnv, name: string): string[] | undefin
 
 // Only the loopback interfaces are considered safe to bind unauthenticated
 // (core/mcp's default Host allowlist uses the same set: 127.0.0.1, localhost,
-// ::1). Anything else is a network exposure switch.
-function isLoopbackHost(host: string): boolean {
-  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+// ::1). Anything else is a network exposure switch. Case-insensitive to match
+// core/mcp's normalization of the Host header.
+export function isLoopbackHost(host: string): boolean {
+  return ["127.0.0.1", "localhost", "::1"].includes(host.toLowerCase());
 }
 
 // No SecretRef concept exists outside OpenClaw's config system -- an env
@@ -196,11 +197,26 @@ export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
     // The app has no built-in auth, so a non-loopback bind is only sensible
     // behind an authenticated reverse proxy -- which always sends a real
     // hostname, so MCP_ALLOWED_HOSTS is never an unreasonable burden.
-    if (!isLoopbackHost(host) && allowedHosts === undefined) {
-      throw new Error(
-        `MCP_BIND_HOST is bound to non-loopback interface "${host}" but MCP_ALLOWED_HOSTS is not set ` +
-          "(the app has no built-in auth)",
-      );
+    if (!isLoopbackHost(host)) {
+      // Non-loopback bind = network exposure. The app has no built-in auth, so:
+      // 1) an explicit host allowlist is mandatory, and
+      // 2) it must not contain loopback names -- core/mcp's DNS-rebinding check
+      //    compares only the client-controlled Host header, so 'localhost' in
+      //    the allowlist would let any remote client bypass it with
+      //    'Host: localhost'. A real reverse proxy always sends a real
+      //    hostname, so rejecting loopback entries never blocks that path.
+      if (allowedHosts === undefined) {
+        throw new Error(
+          `MCP_BIND_HOST is bound to non-loopback interface "${host}" but MCP_ALLOWED_HOSTS is not set ` +
+            "(the app has no built-in auth)",
+        );
+      }
+      if (allowedHosts.some((h) => isLoopbackHost(h))) {
+        throw new Error(
+          `MCP_BIND_HOST is bound to non-loopback interface "${host}" but MCP_ALLOWED_HOSTS contains a ` +
+            "loopback hostname, which lets any client bypass DNS-rebinding protection via Host: localhost",
+        );
+      }
     }
     return {
       transport: "http",

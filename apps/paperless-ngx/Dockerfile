@@ -19,7 +19,7 @@
 # MCP_ALLOWED_HOSTS (DNS-rebinding protection), and prefer PAPERLESS_READ_ONLY:
 #
 #   docker run --rm -p 3000:3000 -e MCP_TRANSPORT=http \
-#     -e MCP_BIND_HOST=0.0.0.0 -e MCP_ALLOWED_HOSTS=mcp.example.com,localhost \
+#     -e MCP_BIND_HOST=0.0.0.0 -e MCP_ALLOWED_HOSTS=mcp.example.com \
 #     -e PAPERLESS_BASE_URL=... -e PAPERLESS_API_TOKEN=... \
 #     paperless-ngx-mcp
 #

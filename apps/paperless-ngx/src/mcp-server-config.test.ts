@@ -275,6 +275,16 @@ describe("readTransportConfig", () => {
     );
   });
 
+  it("refuses a non-loopback bind whose MCP_ALLOWED_HOSTS includes a loopback name", () => {
+    expect(() =>
+      readTransportConfig({
+        MCP_TRANSPORT: "http",
+        MCP_BIND_HOST: "0.0.0.0",
+        MCP_ALLOWED_HOSTS: "mcp.grotz.io,localhost",
+      }),
+    ).toThrow("MCP_ALLOWED_HOSTS contains a loopback hostname");
+  });
+
   it("trims surrounding whitespace from MCP_BIND_HOST", () => {
     expect(
       readTransportConfig({

@@ -9,7 +9,7 @@ import {
   serveStdio,
 } from "@transmitt0r/mycelium-mcp";
 import { createPaperlessClient, type PaperlessClientHandle } from "./client.js";
-import { readStandaloneConfig, readTransportConfig } from "./mcp-server-config.js";
+import { isLoopbackHost, readStandaloneConfig, readTransportConfig } from "./mcp-server-config.js";
 import { createSemanticSearchCore, type Logger } from "./semantic/handle.js";
 import {
   createGetDocumentTool,
@@ -42,14 +42,6 @@ function packageVersion(): string {
 
 function defaultIndexPath(): string {
   return path.join(os.homedir(), ".mycelium", "paperless-ngx", "semantic-index.db");
-}
-
-// Binding a loopback-only interface is safe to run unauthenticated (core/mcp's
-// Host-header DNS-rebinding check only accepts loopback names by default).
-// Anything else is an exposure switch -- the app deliberately has no built-in
-// auth, so it must live behind an authenticated reverse proxy.
-function isLoopbackHost(host: string): boolean {
-  return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
 async function main(): Promise<void> {
