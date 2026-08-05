@@ -159,6 +159,7 @@ Configuration is env vars instead of `openclaw.json`:
 | `TRILIUM_SEMANTIC_INDEX_PATH` | no | Defaults under `~/.mycelium/trilium/` |
 | `TRILIUM_EMBEDDING_PROVIDER` | no | `openai-compatible` (default) or `local` -- see the Semantic search section above |
 | `TRILIUM_EMBEDDING_BASE_URL` / `TRILIUM_EMBEDDING_API_KEY` / `TRILIUM_EMBEDDING_MODEL` / `TRILIUM_EMBEDDING_DIMENSIONS` | see above | Required together for the `openai-compatible` provider, same as `semanticSearch.embedding.*` above |
+| `TRILIUM_READ_ONLY` | no | Set to exactly `true` to register only the read tools (search, get/read note, recent changes, attachment metadata, revision content) -- the write tools (create/update/delete note, attributes, attachments, revisions, calendar-journal materialization) are never registered at all, so they can't be listed or called. Good defense-in-depth whenever the server is exposed over HTTP -- but it trims the tool list only; it is **not** a substitute for authenticating the HTTP transport. Any unrecognized non-empty value fails startup rather than silently shipping a writable server |
 | `MCP_TRANSPORT` | no | `stdio` (default) or `http` |
 | `MCP_PORT` / `MCP_HTTP_PATH` | no | Only used when `MCP_TRANSPORT=http`; default to `3000` / `/mcp` |
 

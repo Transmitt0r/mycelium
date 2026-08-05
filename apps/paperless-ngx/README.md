@@ -138,6 +138,7 @@ Configuration is env vars instead of `openclaw.json`:
 | `PAPERLESS_SEMANTIC_INDEX_PATH` | no | Defaults under `~/.mycelium/paperless-ngx/` |
 | `PAPERLESS_EMBEDDING_PROVIDER` | no | `openai-compatible` (default) or `local` -- see the Semantic search section above |
 | `PAPERLESS_EMBEDDING_BASE_URL` / `PAPERLESS_EMBEDDING_API_KEY` / `PAPERLESS_EMBEDDING_MODEL` / `PAPERLESS_EMBEDDING_DIMENSIONS` | see above | Required together for the `openai-compatible` provider, same as `semanticSearch.embedding.*` above |
+| `PAPERLESS_READ_ONLY` | no | Set to exactly `true` to register only the read tools (document search, get/read, content search, taxonomy list) -- the write tools are never registered at all, so they can't be listed or called. Good defense-in-depth whenever the server is exposed over HTTP -- but it trims the tool list only; it is **not** a substitute for authenticating the HTTP transport. Any unrecognized non-empty value fails startup rather than silently shipping a writable server |
 | `MCP_TRANSPORT` | no | `stdio` (default) or `http` |
 | `MCP_PORT` / `MCP_HTTP_PATH` | no | Only used when `MCP_TRANSPORT=http`; default to `3000` / `/mcp` |
 

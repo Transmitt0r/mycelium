@@ -5,6 +5,7 @@ export type StandaloneConfig = {
   baseUrl: string;
   apiToken: string;
   semanticSearch: SemanticSearchPluginConfig | undefined;
+  readOnly: boolean;
 };
 
 export type TransportConfig =
@@ -73,7 +74,23 @@ export function readStandaloneConfig(env: NodeJS.ProcessEnv): StandaloneConfig {
     baseUrl: requireEnv(env, "PAPERLESS_BASE_URL").replace(/\/+$/, ""),
     apiToken: requireEnv(env, "PAPERLESS_API_TOKEN"),
     semanticSearch: readSemanticSearchConfig(env),
+    readOnly: readReadOnlyFlag(env, "PAPERLESS_READ_ONLY"),
   };
+}
+
+// Read-only mode is armed only by the literal string "true". Unlike a
+// truthy-string parse, an unrecognized *non-empty* value is a startup error
+// rather than a silent read-write default. That direction matters for a
+// security switch aimed at HTTP exposure: failing open on a typo'd value
+// (PAPERLESS_READ_ONLY=TRUE or =on) would quietly ship a fully-writable server
+// to an exposed listener. Failing closed surfaces the misconfiguration at
+// boot instead of at first compromise. Empty/unset reads as "off", which is
+// the deliberate default (read-only is opt-in).
+function readReadOnlyFlag(env: NodeJS.ProcessEnv, name: string): boolean {
+  const value = env[name];
+  if (value === undefined || value === "") return false;
+  if (value === "true") return true;
+  throw new Error(`${name} must be exactly "true" or empty, got ${JSON.stringify(value)}`);
 }
 
 export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
