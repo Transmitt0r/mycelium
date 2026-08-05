@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readStandaloneConfig, readTransportConfig } from "./mcp-server-config.js";
 
 describe("readStandaloneConfig", () => {
@@ -85,6 +88,49 @@ describe("readStandaloneConfig", () => {
       PAPERLESS_SEMANTIC_INDEX_PATH: "/data/index.db",
     });
     expect(config.semanticSearch).toEqual({ indexPath: "/data/index.db", embedding: undefined });
+  });
+
+  describe("<VAR>_FILE Docker secrets", () => {
+    let dir: string;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "paperless-mcp-config-"));
+    });
+
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    const writeSecret = (name: string, contents: string): string => {
+      const file = join(dir, name);
+      writeFileSync(file, contents);
+      return file;
+    };
+
+    it("reads apiToken from PAPERLESS_API_TOKEN_FILE, trimming the trailing newline", () => {
+      const config = readStandaloneConfig({
+        PAPERLESS_BASE_URL: "https://paperless.example.com",
+        PAPERLESS_API_TOKEN_FILE: writeSecret("api-token", "secret-api-token\n"),
+      });
+      expect(config.apiToken).toBe("secret-api-token");
+    });
+
+    it("still strips a trailing slash from a baseUrl read from PAPERLESS_BASE_URL_FILE", () => {
+      const config = readStandaloneConfig({
+        PAPERLESS_BASE_URL_FILE: writeSecret("base-url", "https://paperless.example.com/\n"),
+        PAPERLESS_API_TOKEN: "t",
+      });
+      expect(config.baseUrl).toBe("https://paperless.example.com");
+    });
+
+    it("prefers the _FILE variant when both it and the plain env var are set", () => {
+      const config = readStandaloneConfig({
+        PAPERLESS_BASE_URL: "https://paperless.example.com",
+        PAPERLESS_API_TOKEN: "plain",
+        PAPERLESS_API_TOKEN_FILE: writeSecret("api-token", "from-file"),
+      });
+      expect(config.apiToken).toBe("from-file");
+    });
   });
 });
 

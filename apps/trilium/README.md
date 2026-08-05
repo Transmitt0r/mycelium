@@ -154,6 +154,7 @@ Configuration is env vars instead of `openclaw.json`:
 | --- | --- | --- |
 | `TRILIUM_BASE_URL` | yes | Same as `baseUrl` above |
 | `TRILIUM_API_TOKEN` | yes | Same as `apiToken` above -- always a plain string here, no SecretRef support (that's an OpenClaw config-system concept) |
+| `TRILIUM_BASE_URL_FILE` / `TRILIUM_API_TOKEN_FILE` | no | Docker-secret variants: path to a file whose trimmed contents are used instead of the plain env var above (the `_FILE` convention used by the postgres image and friends). Takes precedence when set |
 | `TRILIUM_SEMANTIC_SEARCH_ENABLED` | no | Set to `false` to disable (defaults on, same fail-open behavior as the plugin) |
 | `TRILIUM_SEMANTIC_INDEX_PATH` | no | Defaults under `~/.mycelium/trilium/` |
 | `TRILIUM_EMBEDDING_PROVIDER` | no | `openai-compatible` (default) or `local` -- see the Semantic search section above |

@@ -17,6 +17,10 @@
 #   docker run --rm -p 3000:3000 -e MCP_TRANSPORT=http \
 #     -e TRILIUM_BASE_URL=... -e TRILIUM_API_TOKEN=... \
 #     trilium-mcp
+#
+# To keep secrets out of plaintext env, TRILIUM_BASE_URL_FILE /
+# TRILIUM_API_TOKEN_FILE take a path to a (Docker-secret) file whose trimmed
+# contents are used instead -- e.g. -e TRILIUM_API_TOKEN_FILE=/run/secrets/token
 
 FROM node:22-slim AS build
 RUN corepack enable
