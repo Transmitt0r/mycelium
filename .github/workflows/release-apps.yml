@@ -17,12 +17,25 @@ jobs:
       # to release) must not stop the others.
       fail-fast: false
       matrix:
-        app: [paperless-ngx, trilium, onepassword]
+        # image is the GHCR image basename (lowercase is applied at build
+        # time); onepassword ships no Dockerfile so it gets no image and its
+        # Docker steps are skipped.
+        include:
+          - app: paperless-ngx
+            package: '@transmitt0r/openclaw-plugin-paperless-ngx'
+            image: mycelium-paperless-ngx-mcp
+          - app: trilium
+            package: '@transmitt0r/openclaw-plugin-trilium'
+            image: mycelium-trilium-mcp
+          - app: onepassword
+            package: '@transmitt0r/openclaw-plugin-onepassword'
+            image: ''
     permissions:
       contents: write # to publish a GitHub release and push the release tag
       issues: write # to comment on released issues
       pull-requests: write # to comment on released pull requests
       id-token: write # to enable OIDC for npm trusted publishing/provenance
+      packages: write # to push Docker images to GHCR
 
     steps:
       - uses: actions/checkout@v7
@@ -63,6 +76,11 @@ jobs:
       # running from apps/${{ matrix.app }} against the shared repo history
       # (all three apps + core/tools share one git log since the
       # git-subtree merge) only considers this app's own commits.
+      #
+      # This step both publishes (npm + ClawHub) and creates/pushes the
+      # release tag. It is the success/failure gate for the Docker steps
+      # below: if any release stage fails, this step fails and the image is
+      # not published for this app.
       - name: Release
         working-directory: apps/${{ matrix.app }}
         run: pnpm run release
@@ -73,66 +91,40 @@ jobs:
           # semantic-release has actually decided to publish a release.
           CLAWHUB_API_KEY: ${{ secrets.CLAWHUB_API_KEY }}
 
-  # Build + push the standalone MCP-server Docker images to GHCR so
-  # deployments (e.g. Komodo) can pull ready-made images. This lives in the
-  # same workflow run as `release` rather than a separate `push: tags`
-  # workflow because tags created with the repo's GITHUB_TOKEN do NOT
-  # re-trigger workflows (GitHub recursion protection) -- so a tag-triggered
-  # job would never fire. Only the two apps with Dockerfiles are built; the
-  # onepassword app has none.
-  publish-images:
-    needs: release
-    # !cancelled() (not success()): a single failing release leg -- e.g.
-    # onepassword, which publishes no image -- must not skip publishing for
-    # the apps whose release DID succeed. Each matrix row is gated in the
-    # meta step below, so partial publishing is safe.
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    strategy:
-      # Each app's tag is resolved and gated independently in the meta step;
-      # a job for one app must not block the other.
-      fail-fast: false
-      matrix:
-        include:
-          - app: trilium
-            package: '@transmitt0r/openclaw-plugin-trilium'
-            image: mycelium-trilium-mcp
-          - app: paperless-ngx
-            package: '@transmitt0r/openclaw-plugin-paperless-ngx'
-            image: mycelium-paperless-ngx-mcp
-    permissions:
-      contents: read
-      packages: write # to push images to GHCR
+      # ---- Docker image publish (per app) --------------------------------
+      # These run inside this matrix leg, right after a successful release,
+      # so they are automatically per-app: a release that failed (or skipped,
+      # nothing to release) produces no image, and other apps' legs are
+      # unaffected. We deliberately do NOT use a separate `push: tags`
+      # workflow: tags created with the repo's GITHUB_TOKEN do not re-trigger
+      # workflows (GitHub recursion protection), so a tag-triggered job would
+      # never fire.
 
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0 # need the release tags to derive the version
-
-      # Resolve this app's release tag at the triggering commit and derive
-      # version + image tags. The matrix.* values below are workflow-controlled
-      # (safe to inline); the trigger ref and repo owner come in via env, not
-      # shell interpolation, to avoid script injection from tag names. GHCR
-      # requires lowercase image names, so lowercase the owner path. We only
-      # publish when this app's release tag exists AT the triggering commit --
-      # i.e. this run actually released the app -- so a push without a new
-      # release (or one that only released the other app) never touches an
-      # existing version tag. "latest" is only added for stable
-      # (non-prerelease) versions so a v2.0.0-rc.1 tag never overwrites it.
+      # Compute the version + image tags. The matrix.* values are
+      # workflow-controlled (safe to inline); the trigger ref and repo owner
+      # come in via env, not shell interpolation, to avoid script injection
+      # from tag names. GHCR requires lowercase image names, so lowercase the
+      # owner path. "latest" is only added for stable (non-prerelease)
+      # versions so a v2.0.0-rc.1 tag never overwrites it.
       - name: Compute image tags
         id: meta
         env:
           OWNER: ${{ github.repository_owner }}
           TRIGGER_SHA: ${{ github.sha }}
         run: |
+          set -euo pipefail
+          if [[ -z "${{ matrix.image }}" ]]; then
+            echo "No Dockerfile for ${{ matrix.app }}; skipping image publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           PREFIX="${{ matrix.package }}-"
-          # Tags AT this commit, not "latest by sort order": sorting is
-          # exactly where prereleases get mis-ranked, and this is precisely
-          # the "did this run release the app" semantics we want. --points-at
-          # dereferences annotated tags correctly, so no ^{commit} needed.
-          # Version-sort (ascending, take last) so that if several tags for
-          # the same app happen to sit on one commit, the newest wins instead
-          # of a lexical oddity like v1.10.0 < v1.9.0.
+          # Tags AT the released commit, not "latest by sort order": sorting
+          # is exactly where prereleases get mis-ranked, and --points-at is
+          # precisely the "did this run release the app" flag we need. It
+          # dereferences annotated tags correctly. Version-sort (ascending,
+          # take last) so if several tags for the same app sit on one commit
+          # the newest wins (avoids lexical v1.10.0 < v1.9.0).
           TAG=$(git tag --points-at "$TRIGGER_SHA" "${PREFIX}v*" --sort=v:refname | tail -1)
           if [[ -z "$TAG" ]]; then
             echo "No release for ${{ matrix.app }} at this commit; skipping."
