@@ -19,7 +19,7 @@
 # MCP_ALLOWED_HOSTS (DNS-rebinding protection), and prefer TRILIUM_READ_ONLY:
 #
 #   docker run --rm -p 3000:3000 -e MCP_TRANSPORT=http \
-#     -e MCP_BIND_HOST=0.0.0.0 -e MCP_ALLOWED_HOSTS=mcp.example.com \
+#     -e MCP_BIND_HOST=0.0.0.0 -e MCP_ALLOWED_HOSTS=mcp.example.com,localhost \
 #     -e TRILIUM_BASE_URL=... -e TRILIUM_API_TOKEN=... \
 #     trilium-mcp
 #

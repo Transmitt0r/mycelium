@@ -284,9 +284,14 @@ describe("readTransportConfig", () => {
       path: undefined,
       host: "127.0.0.1",
     });
-    expect(
-      readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "  ,  " }),
-    ).toMatchObject({});
+    // Whitespace-only (no real hostnames) is likewise treated as unset -- the
+    // resulting object must carry no allowedHosts at all, not ["  "].
+    expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "  ,  " })).toEqual({
+      transport: "http",
+      port: 3000,
+      path: undefined,
+      host: "127.0.0.1",
+    });
   });
 
   it("throws when MCP_PORT is not a valid integer", () => {
