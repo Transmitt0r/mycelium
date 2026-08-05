@@ -242,6 +242,11 @@ export async function serveHttp(
   validateAuth(options.auth);
   validateHostLists(options);
   const transports = new Map<string, StreamableHTTPServerTransport>();
+  // Synchronously-reserved session count. Unlike `transports.size` (which only
+  // updates when an initialize completes, i.e. asynchronously), this is bumped
+  // in the same tick a new-session request is accepted, so parallel initialize
+  // requests can't all slip past the maxSessions check before any is counted.
+  let sessions = 0;
 
   // Fail-safe default: bind loopback only. MCP servers execute arbitrary
   // configured tools, so exposing one (e.g. behind a reverse proxy or on a LAN)
@@ -288,12 +293,14 @@ export async function serveHttp(
         return;
       }
 
-      // No session id → a fresh (initialize) session is being attempted. Enforce
-      // the concurrency cap so a misbehaving client can't exhaust memory.
-      if (transports.size >= maxSessions) {
+      // No session id → a fresh (initialize) session is being attempted. Reserve
+      // a slot synchronously (same tick), so parallel initialize requests can't
+      // all slip past the cap before any completion is counted.
+      if (sessions >= maxSessions) {
         res.writeHead(503).end();
         return;
       }
+      sessions++;
 
       // Let a fresh per-session transport decide: if this request is a valid
       // initialize it assigns the session id and registers itself. If it turns
@@ -305,18 +312,28 @@ export async function serveHttp(
           transports.set(id, transport);
         },
       });
+      // Releasing the reserved slot (and any registered session) is the transport's
+      // onclose hook — the single point every teardown path funnels through.
       transport.onclose = () => {
+        sessions--;
         const id = transport.sessionId;
         if (id) transports.delete(id);
       };
-      const server = createServer();
+      let server: Server;
+      try {
+        server = createServer();
+      } catch (err) {
+        // A throwing factory must not leak the reserved slot or the transport.
+        void transport.close().catch(() => {});
+        throw err;
+      }
       void server
         .connect(transport)
         .then(() => transport.handleRequest(req, res))
         .catch(respondWithError(res, options.onServerError))
         .finally(() => {
           // Leak guard: a request that never initialized a session was never
-          // registered (so onclose never fired) and never closed. Clean it up.
+          // registered and only our close() will release its slot. Clean it up.
           if (transport.sessionId === undefined) {
             return transport.close().catch(() => {});
           }
