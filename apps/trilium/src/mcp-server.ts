@@ -33,6 +33,7 @@ import {
   createUndeleteNoteTool,
   createUpdateNoteTool,
 } from "./tools/notes.js";
+import { filterReadOnlyTools } from "./tools/read-only.js";
 import { createCreateRevisionTool, createReadRevisionContentTool } from "./tools/revisions.js";
 import { createPlaceNoteInTreeTool, createRemoveNoteFromLocationTool } from "./tools/tree.js";
 
@@ -84,7 +85,7 @@ async function main(): Promise<void> {
     handlePromise,
   );
 
-  const tools = [
+  const allTools = [
     createSearchNotesTool(handlePromise, semanticHandlePromise),
     createGetNoteTool(handlePromise),
     createReadNoteContentTool(handlePromise),
@@ -106,6 +107,20 @@ async function main(): Promise<void> {
     createReadRevisionContentTool(handlePromise),
     createGetCalendarNoteTool(handlePromise),
   ];
+
+  // TRILIUM_READ_ONLY=true is a hard trim, not a soft flag: the write tools are
+  // never handed to createMcpServer, so they never show up in tools/list and
+  // there's no handler behind them to call. Anything short of that (annotating
+  // them, refusing at execute time) still leaves a live mutation endpoint on a
+  // server whose whole point here is being remotely reachable over HTTP.
+  const tools = filterReadOnlyTools(allTools, config.readOnly);
+  // Log the effective mode unconditionally, not only when read-only is on:
+  // a read-write deployment that *meant* to be read-only but isn't is a
+  // security misconfiguration, and it must be visible in the log from boot --
+  // not silently indistinguishable from an intended read-write server.
+  logger.info?.(
+    `read-only mode ${config.readOnly ? "ON" : "off"}: registering ${tools.length} of ${allTools.length} tools`,
+  );
 
   // AnyAgentTool.parameters is a TypeBox TSchema -- structurally a plain
   // JSON Schema object at runtime (which is all BridgeableTool actually

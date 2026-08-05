@@ -132,6 +132,47 @@ describe("readStandaloneConfig", () => {
       expect(config.apiToken).toBe("from-file");
     });
   });
+
+  it("leaves readOnly false when PAPERLESS_READ_ONLY is unset", () => {
+    const config = readStandaloneConfig({
+      PAPERLESS_BASE_URL: "https://paperless.example.com",
+      PAPERLESS_API_TOKEN: "t",
+    });
+    expect(config.readOnly).toBe(false);
+  });
+
+  // Read-only is armed by exactly "true"; an unrecognized non-empty value is a
+  // startup error (fail-closed) rather than a silent read-write default -- the
+  // right failure direction for a security switch aimed at HTTP exposure.
+  it("leaves readOnly false when PAPERLESS_READ_ONLY is empty", () => {
+    const config = readStandaloneConfig({
+      PAPERLESS_BASE_URL: "https://paperless.example.com",
+      PAPERLESS_API_TOKEN: "t",
+      PAPERLESS_READ_ONLY: "",
+    });
+    expect(config.readOnly).toBe(false);
+  });
+
+  for (const value of ["1", "yes", "TRUE", "on", "false"]) {
+    it(`throws on the non-literal PAPERLESS_READ_ONLY value [${value}]`, () => {
+      expect(() =>
+        readStandaloneConfig({
+          PAPERLESS_BASE_URL: "https://paperless.example.com",
+          PAPERLESS_API_TOKEN: "t",
+          PAPERLESS_READ_ONLY: value,
+        }),
+      ).toThrow(`PAPERLESS_READ_ONLY must be exactly "true" or empty`);
+    });
+  }
+
+  it("sets readOnly when PAPERLESS_READ_ONLY is exactly the string true", () => {
+    const config = readStandaloneConfig({
+      PAPERLESS_BASE_URL: "https://paperless.example.com",
+      PAPERLESS_API_TOKEN: "t",
+      PAPERLESS_READ_ONLY: "true",
+    });
+    expect(config.readOnly).toBe(true);
+  });
 });
 
 describe("readTransportConfig", () => {
