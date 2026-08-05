@@ -13,7 +13,6 @@ export type TransportConfig =
   | {
       transport: "http";
       port: number;
-      path?: string;
       host: string;
       allowedHosts?: string[];
     };
@@ -200,7 +199,7 @@ function readReadOnlyFlag(env: NodeJS.ProcessEnv, name: string): boolean {
 export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
   const transport = env.MCP_TRANSPORT;
   if (transport === "http") {
-    const host = parseBindHost(env, "MCP_BIND_HOST", "127.0.0.1");
+    const host = parseBindHost(env, "MCP_HOST", "127.0.0.1");
     const allowedHosts = parseHostList(env, "MCP_ALLOWED_HOSTS");
     // Fail closed on non-loopback exposure: binding 0.0.0.0 without an
     // explicit host allowlist would ship an unauthenticated, network-reachable
@@ -220,7 +219,7 @@ export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
       // bridge + authenticated reverse proxy).
       if (allowedHosts === undefined) {
         throw new Error(
-          `MCP_BIND_HOST is bound to non-loopback interface "${host}" but MCP_ALLOWED_HOSTS is not set ` +
+          `MCP_HOST is bound to non-loopback interface "${host}" but MCP_ALLOWED_HOSTS is not set ` +
             "(the app has no built-in auth)",
         );
       }
@@ -228,10 +227,9 @@ export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
     return {
       transport: "http",
       port: parsePortEnv(env, "MCP_PORT", 3000),
-      path: env.MCP_HTTP_PATH,
       // Loopback-only by default. Exposing the server on all interfaces
       // (e.g. a bridged Docker network in front of a reverse proxy) is an
-      // explicit opt-in via MCP_BIND_HOST -- an MCP server executes arbitrary
+      // explicit opt-in via MCP_HOST -- an MCP server executes arbitrary
       // configured tools, so reaching it must never be an accident.
       host,
       // Reverse proxies (e.g. Caddy) send the public hostname in the Host
