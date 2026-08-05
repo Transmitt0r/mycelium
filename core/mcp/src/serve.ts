@@ -286,6 +286,23 @@ export async function serveHttp(
     idleTimer = setInterval(sweepIdle, Math.min(sessionIdleTimeoutMs, 60_000));
     idleTimer.unref?.();
   }
+  // Globally-idempotent slot release. onclose, the sweeper's failure path, and the
+  // aborted-request backstop all funnel here, so a session's slot + map entries are
+  // released exactly once no matter how many close() calls / teardown paths race it.
+  const releasedTransports = new WeakSet<StreamableHTTPServerTransport>();
+  function releaseSlot(transport: StreamableHTTPServerTransport, server?: Server): void {
+    if (releasedTransports.has(transport)) return;
+    releasedTransports.add(transport);
+    sessions--;
+    const id = transport.sessionId;
+    if (id) {
+      transports.delete(id);
+      lastSeen.delete(id);
+      openResponses.delete(id);
+    }
+    if (server) void server.close().catch(() => {});
+  }
+
   // A session is only harvestable when it has neither recent activity nor any
   // still-open response stream (SSE). `?? 0` keeps an entry whose stamp is
   // somehow missing reapable rather than pinning its slot forever.
@@ -308,11 +325,17 @@ export async function serveHttp(
       const seen = lastSeen.get(id) ?? 0;
       const open = (openResponses.get(id) ?? 0) > 0;
       if (!open && now - seen > sessionIdleTimeoutMs) {
-        void transport
-          .close()
-          .catch((err) =>
-            options.onServerError?.(err instanceof Error ? err : new Error(String(err))),
-          );
+        void transport.close().then(
+          () => {
+            // On success the transport fires onclose, which runs releaseSlot.
+          },
+          (err) => {
+            // close() rejected before firing onclose: hard-release so the session
+            // can't leak and isn't re-reaped / re-routed every sweep.
+            releaseSlot(transport);
+            options.onServerError?.(err instanceof Error ? err : new Error(String(err)));
+          },
+        );
       }
     }
   }
@@ -398,11 +421,9 @@ export async function serveHttp(
         // initialize it assigns the session id and registers itself. If it turns
         // out not to be (malformed JSON-RPC, stale id without a header, etc.) the
         // transport is never registered — tear it down so it can't leak.
-        let released = false;
-        // Declared before the transport so onclose (and the release checks below)
-        // can read them; `server` stays unassigned until the factory runs, which
-        // onclose must read as undefined rather than trip a TDZ ReferenceError.
-        let server!: Server;
+        // `server` stays unassigned until the factory runs; releaseSlot reads it
+        // as undefined then, which is handled (no TDZ).
+        let server: Server | undefined;
         let transport: StreamableHTTPServerTransport;
         try {
           transport = new StreamableHTTPServerTransport({
@@ -412,8 +433,8 @@ export async function serveHttp(
               // released (e.g. an abort race where the client dropped the request
               // mid-parse: onclose fired with sessionId still undefined). Registering
               // a dead transport would leak it in the maps — a later close() is a
-              // released-guard no-op and the reaper's open-stream rule would pin it.
-              if (closing || released) {
+              // releaseSlot no-op and the reaper's open-stream rule would pin it.
+              if (closing || releasedTransports.has(transport)) {
                 void transport.close().catch(() => {});
                 return;
               }
@@ -425,41 +446,26 @@ export async function serveHttp(
             },
           });
         } catch (err) {
-          // Construction failed before onclose could own the reservation — release
-          // the slot now, then let the outer handler respond 500.
+          // Construction failed before any release path owned the reservation —
+          // no transport exists to releaseSlot, so undo the reservation directly.
           sessions--;
           throw err;
         }
         // Releasing the reserved slot (and any registered session) is the transport's
-        // onclose hook — the single point every teardown path funnels through. The
-        // SDK's close() is NOT idempotent (each call re-fires onclose), so guard the
-        // bookkeeping against a double-close (DELETE teardown + handle.close(), etc.)
-        // which would otherwise drift `sessions` negative and disarm the cap.
+        // onclose hook, which funnels into releaseSlot (globally idempotent) — DELETE
+        // teardown, handle.close, the idle reaper and the abort backstop can never
+        // double-release a slot.
         //
         // NOTE: this relies on Protocol.connect (SDK ≥1.30 chains it; verified) reading
         // the transport's existing onclose and chaining it rather than overwriting it.
         // If a future SDK stops chaining, sessions-- would never run and the cap would
         // silently stick at maxSessions — the DELETE-reconnect and idle-reap tests in
         // serve.test.ts guard specifically against that regression.
-        transport.onclose = () => {
-          if (released) return;
-          released = true;
-          sessions--;
-          const id = transport.sessionId;
-          if (id) {
-            transports.delete(id);
-            lastSeen.delete(id);
-            openResponses.delete(id);
-          }
-          // Best-effort teardown of the per-session Server so any resources the
-          // factory attached (timers, upstream clients, watchers) are released.
-          if (server) void server.close().catch(() => {});
-        };
+        transport.onclose = () => releaseSlot(transport, server);
         // Backstop for a slot that would otherwise never be freed: if the client
         // aborts before the request ever settles (so neither the leak-guard above
         // nor onclose runs) and no session was registered, release the reserved
-        // slot on response close. Idempotent — the `released` guard and the
-        // leak-guard make double close() a no-op.
+        // slot on response close. Idempotent — releaseSlot makes double close a no-op.
         res.once("close", () => {
           if (transport.sessionId === undefined) {
             void transport.close().catch(() => {});
@@ -528,11 +534,14 @@ export async function serveHttp(
       if (idleTimer) clearInterval(idleTimer);
       await Promise.allSettled([...transports.values()].map((t) => t.close()));
       transports.clear();
-      // httpServer.close() waits for all connections. Idle keep-alive sockets
-      // held open by clients would otherwise block shutdown, so close them.
+      // httpServer.close() waits for all connections. Idle keep-alive sockets held
+      // open by clients would otherwise block shutdown, so close idle ones first,
+      // then force-close any stragglers (e.g. a slow-loris request mid-body) so the
+      // shutdown promise can't wait out the full requestTimeout.
       await new Promise<void>((resolve, reject) => {
         httpServer.close((err) => (err ? reject(err) : resolve()));
         httpServer.closeIdleConnections?.();
+        httpServer.closeAllConnections?.();
       });
     },
   };
