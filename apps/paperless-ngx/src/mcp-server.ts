@@ -44,6 +44,14 @@ function defaultIndexPath(): string {
   return path.join(os.homedir(), ".mycelium", "paperless-ngx", "semantic-index.db");
 }
 
+// Binding a loopback-only interface is safe to run unauthenticated (core/mcp's
+// Host-header DNS-rebinding check only accepts loopback names by default).
+// Anything else is an exposure switch -- the app deliberately has no built-in
+// auth, so it must live behind an authenticated reverse proxy.
+function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
 async function main(): Promise<void> {
   const logger = stderrLogger();
   const config = readStandaloneConfig(process.env);
@@ -100,6 +108,15 @@ async function main(): Promise<void> {
   // structurally satisfy Record<string, unknown> on its own.
 
   const transportConfig = readTransportConfig(process.env);
+  if (transportConfig.transport === "http" && !isLoopbackHost(transportConfig.host)) {
+    // The app has no built-in auth by design (Caddy/h3 sits in front). Binding a
+    // non-loopback interface is an exposure switch, so surface a loud boot-time
+    // warning rather than relying on README prose an operator may skip.
+    logger.warn?.(
+      `binding on non-loopback interface ${transportConfig.host}: the app has no built-in auth; ` +
+        "only expose behind an authenticated reverse proxy and prefer read-only mode",
+    );
+  }
   let httpHandle: HttpServerHandle | undefined;
   if (transportConfig.transport === "http") {
     // Streamable HTTP mounts one Server per session, so hand over a factory.

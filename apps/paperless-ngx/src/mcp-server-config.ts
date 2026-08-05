@@ -81,6 +81,21 @@ function parsePortEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): n
   return parsed;
 }
 
+// Validates an MCP bind host. Trims surrounding whitespace and rejects a value
+// that itself contains whitespace -- a typo'd/concatenated value (" 0.0.0.0",
+// "0.0.0.0 3000") would otherwise surface only later as an opaque listen()
+// error instead of a clear startup failure. Empty/unset falls back to the
+// loopback host. IPv6 literals (e.g. "::1") are allowed.
+function parseBindHost(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = raw.trim();
+  if (/\s/.test(value)) {
+    throw new Error(`${name} must be a host/IP without whitespace (got ${JSON.stringify(raw)})`);
+  }
+  return value;
+}
+
 // Parses a comma-separated Host allowlist (DNS-rebinding protection). Unset or
 // whitespace-only yields undefined (loopback-only default); otherwise returns a
 // trimmed, de-duplicated array of non-empty hostnames, or undefined when the
@@ -173,7 +188,7 @@ export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
       // (e.g. a bridged Docker network in front of a reverse proxy) is an
       // explicit opt-in via MCP_BIND_HOST -- an MCP server executes arbitrary
       // configured tools, so reaching it must never be an accident.
-      host: env.MCP_BIND_HOST || "127.0.0.1",
+      host: parseBindHost(env, "MCP_BIND_HOST", "127.0.0.1"),
       // Reverse proxies (e.g. Caddy) send the public hostname in the Host
       // header, which core/mcp's DNS-rebinding protection rejects unless the
       // hostname is on the allowlist. Required for any non-loopback exposure.

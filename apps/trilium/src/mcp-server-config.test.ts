@@ -268,6 +268,18 @@ describe("readTransportConfig", () => {
     });
   });
 
+  it("trims surrounding whitespace from MCP_BIND_HOST", () => {
+    expect(
+      readTransportConfig({ MCP_TRANSPORT: "http", MCP_BIND_HOST: " 0.0.0.0 " }),
+    ).toMatchObject({ host: "0.0.0.0" });
+  });
+
+  it("rejects an MCP_BIND_HOST containing whitespace (fail-closed like MCP_PORT)", () => {
+    expect(() =>
+      readTransportConfig({ MCP_TRANSPORT: "http", MCP_BIND_HOST: "0.0.0.0 3000" }),
+    ).toThrow("MCP_BIND_HOST must be a host/IP without whitespace");
+  });
+
   it("reads a comma-separated MCP_ALLOWED_HOSTS allowlist (trimmed, de-duplicated)", () => {
     expect(
       readTransportConfig({
