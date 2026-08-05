@@ -39,7 +39,7 @@ jobs:
       # lifecycle scripts) and must not be able to push images to GHCR.
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0 # semantic-release-monorepo needs full history to
           # scope commits/tags to this app's own path
@@ -90,18 +90,18 @@ jobs:
       # Announce the released version for the publish-images job by writing a
       # per-app info file to an artifact. Only runs on success() (the default
       # after a fully successful `pnpm run release` for THIS app), so a leg
-      # that didn't release produced no file -> no image for it. Each matrix
-      # leg writes a distinct filename, so the artifact contains every app's
-      # info without any merge/order ambiguity.
+      # that didn't release produces no file -> no image for it. Each matrix
+      # leg writes a flat, uniquely named file and uploads it under a UNIQUE
+      # artifact name (upload-artifact v4 forbids two uploads with the same
+      # name in one run), so there is no collision or ordering race.
       - name: Record released version
         env:
           TRIGGER_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          mkdir -p release-info
           IMAGE="${{ matrix.image }}"
           if [[ -z "$IMAGE" ]]; then
-            echo "{}" >> "release-info/${{ matrix.app }}.json"
+            echo "{}" > "${{ matrix.app }}.release.json"
             exit 0
           fi
           PREFIX="${{ matrix.package }}-"
@@ -112,13 +112,13 @@ jobs:
           # Write plain JSON. Version may be empty (no tag at this commit).
           printf '{"app":"%s","image":"%s","version":"%s"}\n' \
             "${{ matrix.app }}" "$IMAGE" "$VERSION" \
-            > "release-info/${{ matrix.app }}.json"
+            > "${{ matrix.app }}.release.json"
 
       - name: Upload release info
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-info
-          path: release-info/
+          name: release-info-${{ matrix.app }}
+          path: ${{ matrix.app }}.release.json
           if-no-files-found: ignore
 
   # Build + push the standalone MCP-server Docker images to GHCR so
@@ -130,6 +130,10 @@ jobs:
   # do not re-trigger workflows (GitHub recursion protection).
   publish-images:
     needs: release
+    # Run even if one release leg failed (a failing sibling leg must not
+    # block publishing for apps whose release succeeded). Skip only if the
+    # whole run was cancelled.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     strategy:
       # Each app's image is built/pushed independently.
@@ -143,11 +147,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Download every app's release-info artifact (each leg uploaded under a
+      # unique name). continue-on-error: if no leg recorded a release (all
+      # failed), there is nothing to download and every meta step will skip
+      # cleanly instead of this job going red.
       - name: Download release info
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: release-info
+          pattern: release-info-*
           path: release-info
+          merge-multiple: true
 
       # Read this app's version file (written only if the release leg
       # succeeded), derive image + tags. The matrix.app and the recorded
@@ -162,7 +172,7 @@ jobs:
           OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
-          INFO="release-info/${{ matrix.app }}.json"
+          INFO="release-info/${{ matrix.app }}.release.json"
           if [[ ! -f "$INFO" ]]; then
             echo "No release recorded for ${{ matrix.app }}; skipping."
             echo "publish=false" >> "$GITHUB_OUTPUT"
