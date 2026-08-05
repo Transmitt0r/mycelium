@@ -445,6 +445,16 @@ export async function serveHttp(
           // factory attached (timers, upstream clients, watchers) are released.
           if (server) void server.close().catch(() => {});
         };
+        // Backstop for a slot that would otherwise never be freed: if the client
+        // aborts before the request ever settles (so neither the leak-guard above
+        // nor onclose runs) and no session was registered, release the reserved
+        // slot on response close. Idempotent — the `released` guard and the
+        // leak-guard make double close() a no-op.
+        res.once("close", () => {
+          if (transport.sessionId === undefined) {
+            void transport.close().catch(() => {});
+          }
+        });
         try {
           server = createServer();
         } catch (err) {

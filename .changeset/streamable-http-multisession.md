@@ -27,9 +27,14 @@ Hardening (from skeptical review):
 - An idle reaper (`sessionIdleTimeoutMs`, default 15 min, `0` disables) closes sessions that
   go silent, so a client that initializes and then disconnects without sending `DELETE` (a
   bare `client.close()` only aborts the local stream and sends no `DELETE`) can't pin a slot
-  and exhaust `maxSessions` forever. A session with a still-open SSE stream is treated as
-  alive and never harvested. Explicit `DELETE` (the SDK's `transport.terminateSession()`)
+  and exhaust `maxSessions` forever. Explicit `DELETE` (the SDK's `transport.terminateSession()`)
   releases the slot immediately.
+- Reaper scope: a session with a still-open SSE stream is treated as alive and is never
+  harvested — the reaper reclaims sessions whose connection has actually gone away (stream
+  closed), not ones a client is actively holding open. So `maxSessions` bounds the number of
+  *live* sessions, and an operator exposing a `host` beyond loopback without auth should rely
+  on OS/Node connection limits and reverse-proxy rate limiting for hard DoS defense, as this
+  is connectionless HTTP's inherent limit.
 - All sessions share a single namespace and a session id is the only link between requests
   after auth; ids are randomUUIDs (not enumerable) and the optional HTTP auth gate still
   runs before any session handling, but with multiple users sharing credentials the session
