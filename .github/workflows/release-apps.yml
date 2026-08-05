@@ -17,16 +17,16 @@ jobs:
       # to release) must not stop the others.
       fail-fast: false
       matrix:
-        # Image GHCR-basename lives in publish-images' own matrix; here we
-        # only need app + package. onepassword ships no Dockerfile and no
-        # record-release successCmd, so it produces no .release.json.
+        # Only app is needed here (the GHCR image basename lives in
+        # publish-images' own matrix, and the release package's name is
+        # hard-coded in each app's own .releaserc.json). onepassword ships no
+        # Dockerfile and its .releaserc has no record-release successCmd, so
+        # -- like the other apps on a no-op push -- its Ensure step below
+        # writes an empty-version file, which publish-images ignores.
         include:
           - app: paperless-ngx
-            package: '@transmitt0r/openclaw-plugin-paperless-ngx'
           - app: trilium
-            package: '@transmitt0r/openclaw-plugin-trilium'
           - app: onepassword
-            package: '@transmitt0r/openclaw-plugin-onepassword'
     permissions:
       contents: write # to publish a GitHub release and push the release tag
       issues: write # to comment on released issues
@@ -42,9 +42,9 @@ jobs:
           fetch-depth: 0 # semantic-release-monorepo needs full history to
           # scope commits/tags to this app's own path
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -203,6 +203,28 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      # Bake the released version into the app's package.json in the build
+      # context. semantic-release bumps package.json only in the release
+      # job's workspace and never commits it (no @semantic-release/git), so
+      # the committed tree carries the previous version; both apps' servers
+      # read their version from package.json at runtime (mcp-server.ts) and
+      # would otherwise report a version that disagrees with the pushed tag.
+      # Patching the build context here makes the image self-report the same
+      # version it was tagged with. Only touches the runner's working tree,
+      # never the repo.
+      - name: Bake released version into build context
+        if: steps.meta.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          node -e "
+            const fs = require('node:fs');
+            const p = 'apps/${{ matrix.app }}/package.json';
+            const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+            j.version = process.argv[1];
+            fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+          " "${VERSION#v}"
 
       - name: Set up Docker Buildx
         if: steps.meta.outputs.publish == 'true'
