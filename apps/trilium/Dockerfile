@@ -12,9 +12,11 @@
 #     -e TRILIUM_API_TOKEN=your-etapi-token \
 #     trilium-mcp
 #
-# Or Streamable HTTP:
+# Or Streamable HTTP (loopback-only by default; expose on all interfaces via
+# MCP_BIND_HOST=0.0.0.0, e.g. in front of a reverse proxy on a bridged network):
 #
 #   docker run --rm -p 3000:3000 -e MCP_TRANSPORT=http \
+#     -e MCP_BIND_HOST=0.0.0.0 \
 #     -e TRILIUM_BASE_URL=... -e TRILIUM_API_TOKEN=... \
 #     trilium-mcp
 #

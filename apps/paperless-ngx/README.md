@@ -141,6 +141,7 @@ Configuration is env vars instead of `openclaw.json`:
 | `PAPERLESS_READ_ONLY` | no | Set to exactly `true` to register only the read tools (document search, get/read, content search, taxonomy list) -- the write tools are never registered at all, so they can't be listed or called. Good defense-in-depth whenever the server is exposed over HTTP -- but it trims the tool list only; it is **not** a substitute for authenticating the HTTP transport. Any unrecognized non-empty value fails startup rather than silently shipping a writable server |
 | `MCP_TRANSPORT` | no | `stdio` (default) or `http`. Only `stdio`/`http` (or unset/empty) are accepted; any other value aborts startup instead of silently falling back |
 | `MCP_PORT` / `MCP_HTTP_PATH` | no | Only used when `MCP_TRANSPORT=http`; default to `3000` / `/mcp`. `MCP_PORT` must be a decimal integer (1–65535) |
+| `MCP_BIND_HOST` | no | Only used when `MCP_TRANSPORT=http`; default `127.0.0.1` (loopback-only). Set to `0.0.0.0` to expose the server on all interfaces (e.g. a bridged Docker network behind a reverse proxy) — always an explicit choice, never the default |
 
 ```bash
 pnpm run build

@@ -10,7 +10,7 @@ export type StandaloneConfig = {
 
 export type TransportConfig =
   | { transport: "stdio" }
-  | { transport: "http"; port: number; path?: string };
+  | { transport: "http"; port: number; path?: string; host: string };
 
 // Docker-secret convention: <NAME>_FILE points at a file (typically a
 // bind-mounted secret) whose trimmed contents are the value -- trimming drops
@@ -145,6 +145,11 @@ export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
       transport: "http",
       port: parsePortEnv(env, "MCP_PORT", 3000),
       path: env.MCP_HTTP_PATH,
+      // Loopback-only by default. Exposing the server on all interfaces
+      // (e.g. a bridged Docker network in front of a reverse proxy) is an
+      // explicit opt-in via MCP_BIND_HOST -- an MCP server executes arbitrary
+      // configured tools, so reaching it must never be an accident.
+      host: env.MCP_BIND_HOST || "127.0.0.1",
     };
   }
   // Fail closed on an unknown transport value instead of silently falling

@@ -112,9 +112,12 @@ async function main(): Promise<void> {
       {
         port: transportConfig.port,
         path: transportConfig.path,
+        host: transportConfig.host,
       },
     );
-    logger.info?.(`listening on :${httpHandle.port}${transportConfig.path ?? "/mcp"}`);
+    logger.info?.(
+      `listening on ${transportConfig.host}:${httpHandle.port}${transportConfig.path ?? "/mcp"}`,
+    );
   } else {
     // Only the stdio path needs a standalone, eagerly-created Server.
     const server = createMcpServer(tools as unknown as BridgeableTool[], {

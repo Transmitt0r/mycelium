@@ -238,13 +238,34 @@ describe("readTransportConfig", () => {
       transport: "http",
       port: 3000,
       path: undefined,
+      host: "127.0.0.1",
     });
   });
 
   it("reads a custom port and path for http", () => {
     expect(
       readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "8080", MCP_HTTP_PATH: "/custom" }),
-    ).toEqual({ transport: "http", port: 8080, path: "/custom" });
+    ).toEqual({ transport: "http", port: 8080, path: "/custom", host: "127.0.0.1" });
+  });
+
+  it("defaults the http bind host to the loopback interface", () => {
+    expect(readTransportConfig({ MCP_TRANSPORT: "http" })).toMatchObject({ host: "127.0.0.1" });
+  });
+
+  it("binds to an explicit MCP_BIND_HOST when set", () => {
+    expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_BIND_HOST: "0.0.0.0" })).toEqual({
+      transport: "http",
+      port: 3000,
+      path: undefined,
+      host: "0.0.0.0",
+    });
+    // An empty value stays inert (Docker/k8s artifact) and keeps loopback.
+    expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_BIND_HOST: "" })).toEqual({
+      transport: "http",
+      port: 3000,
+      path: undefined,
+      host: "127.0.0.1",
+    });
   });
 
   it("throws when MCP_PORT is not a valid integer", () => {
@@ -270,6 +291,7 @@ describe("readTransportConfig", () => {
       transport: "http",
       port: 3000,
       path: undefined,
+      host: "127.0.0.1",
     });
   });
 });
