@@ -1,10 +1,10 @@
-import { networkInterfaces } from "node:os";
+import { request as httpRequest } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, test } from "vitest";
 import { createMcpServer } from "./bridge.js";
 import type { BridgeableTool } from "./index.js";
-import { serveHttp } from "./serve.js";
+import { type ServeHttpAuth, serveHttp } from "./serve.js";
 
 function echoTool(): BridgeableTool<{ text: string }> {
   return {
@@ -147,10 +147,23 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
     await expect(
       serveHttp(maketool(), { port: 0, auth: { basic: { username: "u", password: "" } } }),
     ).rejects.toThrow();
+    // A mistyped (non-string) token must fail at startup too — not crash the
+    // request handler on a real request later.
+    await expect(
+      serveHttp(maketool(), {
+        port: 0,
+        auth: { bearerToken: 123 } as unknown as ServeHttpAuth,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      serveHttp(maketool(), {
+        port: 0,
+        auth: { basic: { username: 42, password: "x" } } as unknown as ServeHttpAuth,
+      }),
+    ).rejects.toThrow();
   });
 
   test("a server defaults to the loopback interface, with or without auth", async () => {
-    const external = externalIPv4Hostname();
     const plain = await serveHttp(
       createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
       { port: 0 },
@@ -161,30 +174,43 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
     );
     handles.push(plain, authed);
 
-    for (const handle of [plain, authed]) {
-      const ok = await fetch(`http://127.0.0.1:${handle.port}/mcp`);
-      expect(ok.status).not.toBe(404);
-      // Non-loopback must NOT be reachable unless an explicit host opts in.
-      if (external) {
-        await expectUnreachable(`http://${external}:${handle.port}/mcp`);
-      }
-    }
+    // The bound address is deterministic — no dependence on external interfaces.
+    expect(plain.host).toBe("127.0.0.1");
+    expect(authed.host).toBe("127.0.0.1");
   });
 
   test("an explicit host binds the listener to exactly that interface", async () => {
-    const external = externalIPv4Hostname();
     const server = createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" });
     const handle = await serveHttp(server, { port: 0, host: "127.0.0.1" });
     handles.push(handle);
 
+    expect(handle.host).toBe("127.0.0.1");
     const ok = await fetch(`http://127.0.0.1:${handle.port}/mcp`);
     expect(ok.status).not.toBe(404);
+  });
 
-    // Connecting via a non-loopback address must fail: the listener is pinned
-    // to loopback, not bound to every interface.
-    if (external) {
-      await expectUnreachable(`http://${external}:${handle.port}/mcp`);
-    }
+  test("the default loopback server rejects non-loopback Host headers (DNS-rebinding protection)", async () => {
+    const handle = await serveHttp(
+      createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
+      { port: 0 },
+    );
+    handles.push(handle);
+
+    // A loopback Host header is accepted (not a 400 host rejection).
+    expect(await rawStatusAt(handle.port, `127.0.0.1:${handle.port}`)).not.toBe(400);
+    // A DNS-rebinding attacker domain resolving to the host is rejected.
+    expect(await rawStatusAt(handle.port, "evil.example")).toBe(400);
+  });
+
+  test("allowedHosts overrides the default DNS-rebinding allowlist", async () => {
+    const handle = await serveHttp(
+      createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
+      { port: 0, allowedHosts: ["mcp.example.com"] },
+    );
+    handles.push(handle);
+
+    expect(await rawStatusAt(handle.port, "mcp.example.com")).not.toBe(400);
+    expect(await rawStatusAt(handle.port, "127.0.0.1:1")).toBe(400);
   });
 
   test("a bind failure (port already in use) rejects serveHttp instead of hanging", async () => {
@@ -193,29 +219,27 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
       { port: 0 },
     );
     handles.push(first);
-    const basePort = first.port;
 
     await expect(
       serveHttp(createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }), {
-        port: basePort,
+        port: first.port,
       }),
     ).rejects.toThrow();
   });
 });
 
-async function expectUnreachable(url: string): Promise<void> {
-  // Some environments drop packets (rather than refuse) on a closed port, so
-  // bound the wait with AbortSignal.timeout instead of relying on an immediate
-  // connection-refused rejection.
-  await expect(fetch(url, { signal: AbortSignal.timeout(2000) })).rejects.toThrow();
-}
-
-function externalIPv4Hostname(): string | undefined {
-  const interfaces = networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const address of interfaces[name] ?? []) {
-      if (address.family === "IPv4" && !address.internal) return address.address;
-    }
-  }
-  return undefined;
+// Send a request with an arbitrary Host header (http.request allows overriding
+// Host, unlike fetch which forbids it).
+function rawStatusAt(port: number, hostHeader: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      { host: "127.0.0.1", port, path: "/mcp", method: "GET", headers: { host: hostHeader } },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
 }

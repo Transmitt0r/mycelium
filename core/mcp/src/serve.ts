@@ -22,12 +22,23 @@ export interface ServeHttpOptions {
   path?: string;
   /** When provided, requests must carry matching credentials (Bearer or Basic). */
   auth?: ServeHttpAuth;
+  /**
+   * DNS-rebinding protection: allowlist of accepted `Host` header values
+   * (port-agnostic). When unset, only the default loopback-only server (no
+   * `auth`, no explicit `host`) is restricted — to loopback hostnames. An
+   * operator who opts into exposure controls the Host themselves, or sets this.
+   */
+  allowedHosts?: string[];
 }
 
 export interface HttpServerHandle {
   port: number;
+  /** The interface the listener is bound to (e.g. "127.0.0.1"). */
+  host: string;
   close(): Promise<void>;
 }
+
+const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "::1"];
 
 // Constant-time comparison for secrets. Both sides are hashed first so
 // `timingSafeEqual` never sees a length mismatch (a length oracle on its own),
@@ -109,22 +120,58 @@ function wwwAuthenticate(auth: ServeHttpAuth): string {
   return challenges.join(", ");
 }
 
-// Fail fast on partial or empty auth config rather than letting a half-empty
-// config silently weaken the gate (e.g. `basic: { username: "", password: "" }`).
+// Fail fast on partial, empty, or mistyped auth config rather than letting it
+// silently weaken the gate or crash the request handler later.
 function validateAuth(auth: ServeHttpAuth | undefined): void {
   if (!auth) return;
-  if (typeof auth.bearerToken === "string" && auth.bearerToken.length === 0) {
-    throw new Error("serveHttp: auth.bearerToken must be a non-empty string when provided");
+  if (auth.bearerToken !== undefined) {
+    if (typeof auth.bearerToken !== "string" || auth.bearerToken.length === 0) {
+      throw new Error("serveHttp: auth.bearerToken must be a non-empty string when provided");
+    }
   }
-  if (
-    auth.basic !== undefined &&
-    (auth.basic.username.length === 0 || auth.basic.password.length === 0)
-  ) {
-    throw new Error("serveHttp: auth.basic requires non-empty username and password");
+  if (auth.basic !== undefined) {
+    if (
+      typeof auth.basic.username !== "string" ||
+      auth.basic.username.length === 0 ||
+      typeof auth.basic.password !== "string" ||
+      auth.basic.password.length === 0
+    ) {
+      throw new Error("serveHttp: auth.basic requires non-empty string username and password");
+    }
   }
   if (!auth.bearerToken && !auth.basic) {
     throw new Error("serveHttp: auth requires at least one of bearerToken or basic");
   }
+}
+
+// Extract the hostname from a Host header, dropping the port. Handles both
+// "host:port" and bracketed IPv6 like "[::1]:3000".
+function hostName(hostHeader: string | undefined): string | undefined {
+  if (!hostHeader) return undefined;
+  let value = hostHeader.trim().toLowerCase();
+  if (value.startsWith("[")) {
+    const end = value.indexOf("]");
+    if (end === -1) return undefined;
+    return value.slice(1, end);
+  }
+  const colon = value.lastIndexOf(":");
+  if (colon !== -1) value = value.slice(0, colon);
+  return value;
+}
+
+function hostAllowed(options: ServeHttpOptions, hostHeader: string | undefined): boolean {
+  const explicit = options.allowedHosts;
+  const name = hostName(hostHeader);
+  if (explicit && explicit.length > 0) {
+    return name !== undefined && explicit.includes(name);
+  }
+  // Only the pure default (loopback binding, no explicit host, no auth) gets an
+  // automatic loopback-Host restriction as DNS-rebinding protection. An operator
+  // who opts into exposure (auth or explicit host) controls the Host themselves.
+  if (options.host === undefined && options.auth === undefined) {
+    return name !== undefined && LOOPBACK_HOSTS.includes(name);
+  }
+  return true;
 }
 
 export async function serveHttp(
@@ -142,28 +189,42 @@ export async function serveHttp(
   const host = options.host ?? "127.0.0.1";
 
   const httpServer = createHttpServer((req, res) => {
-    // Authorize before the path check so unauthenticated clients can't tell a
-    // valid MCP path (401) from a bogus one (404) — no server-path enumeration.
-    if (options.auth && !requestAuthorized(options.auth, req)) {
-      res.writeHead(401, { "WWW-Authenticate": wwwAuthenticate(options.auth) }).end();
-      return;
-    }
-    const url = new URL(req.url ?? "/", "http://localhost");
-    if (url.pathname !== path) {
-      res.writeHead(404).end();
-      return;
-    }
-    transport.handleRequest(req, res).catch((err: unknown) => {
+    try {
+      // Authorize before the path check so unauthenticated clients can't tell a
+      // valid MCP path (401) from a bogus one (404) — no server-path enumeration.
+      if (options.auth && !requestAuthorized(options.auth, req)) {
+        res.writeHead(401, { "WWW-Authenticate": wwwAuthenticate(options.auth) }).end();
+        return;
+      }
+      // DNS-rebinding protection on the default loopback server.
+      if (!hostAllowed(options, req.headers.host)) {
+        res.writeHead(400).end();
+        return;
+      }
+      const url = new URL(req.url ?? "/", "http://localhost");
+      if (url.pathname !== path) {
+        res.writeHead(404).end();
+        return;
+      }
+      transport.handleRequest(req, res).catch((err: unknown) => {
+        if (!res.headersSent) res.writeHead(500);
+        res.end(err instanceof Error ? err.message : String(err));
+      });
+    } catch (err) {
+      // Never let a malformed request crash the process.
       if (!res.headersSent) res.writeHead(500);
       res.end(err instanceof Error ? err.message : String(err));
-    });
+    }
   });
 
   // Surface bind failures (EADDRINUSE, EADDRNOTAVAIL) instead of hanging the
-  // promise on an unhandled 'error' event.
+  // promise on an unhandled 'error' event, and clean up the connected transport
+  // and socket so a retry starts from a clean state.
   await new Promise<void>((resolve, reject) => {
     const onError = (err: Error) => {
       httpServer.removeListener("error", onError);
+      transport.close().catch(() => {});
+      httpServer.close();
       reject(err);
     };
     httpServer.once("error", onError);
@@ -175,9 +236,11 @@ export async function serveHttp(
 
   const address = httpServer.address();
   const actualPort = address && typeof address === "object" ? address.port : options.port;
+  const boundHost = address && typeof address === "object" ? address.address : host;
 
   return {
     port: actualPort,
+    host: boundHost,
     async close() {
       await transport.close();
       await new Promise<void>((resolve, reject) =>

@@ -30,17 +30,21 @@ const handle = await serveHttp(server, {
 
 `serveHttp` optionally enforces an `Authorization` check before handling any request:
 - `auth.bearerToken` requires `Authorization: Bearer <token>` (compared in constant time).
-- `auth.basic` requires `Authorization: Basic base64(username:password)` (compared in constant time).
+- `auth.basic` requires `Authorization: Basic base64(username:password)` (compared in constant time, after decoding).
 - `host` controls the local interface the listener binds.
+- `allowedHosts` sets an explicit `Host` allowlist for DNS-rebinding protection.
 
 Requests that fail the check get `401` with a `WWW-Authenticate` challenge advertising only the
 configured schemes (Bearer and/or Basic). The auth check runs before any path handling, so an
-unauthenticated client can't probe which MCP paths exist.
+unauthenticated client can't probe which MCP paths exist. The returned handle exposes the bound
+port and interface (`handle.port`, `handle.host`).
 
 Bind-address defaulting is fail-safe: every server binds **127.0.0.1 (loopback) only** unless you
 pass an explicit `host`. MCP servers execute arbitrary configured tools, so exposing one is an
 explicit choice — set `host` to the desired interface (e.g. `"0.0.0.0"`) when you intend to put
-it behind a reverse proxy, and pair it with `auth` so the exposed endpoint isn't open.
+it behind a reverse proxy, and pair it with `auth` so the exposed endpoint isn't open. The default
+loopback server additionally rejects non-loopback `Host` headers (DNS-rebinding protection); use
+`allowedHosts` to permit specific hostnames.
 
 `myTools` is an array of `BridgeableTool` — the same `{name, description, parameters, execute}`
 shape OpenClaw's `AnyAgentTool` already has, passed in unmodified.
