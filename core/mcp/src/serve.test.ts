@@ -161,6 +161,10 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
         auth: { basic: { username: 42, password: "x" } } as unknown as ServeHttpAuth,
       }),
     ).rejects.toThrow();
+    // RFC 7617: a username containing ":" is rejected at startup.
+    await expect(
+      serveHttp(maketool(), { port: 0, auth: { basic: { username: "a:b", password: "c" } } }),
+    ).rejects.toThrow();
   });
 
   test("a server defaults to the loopback interface, with or without auth", async () => {
@@ -213,6 +217,39 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
     expect(await rawStatusAt(handle.port, "127.0.0.1:1")).toBe(400);
   });
 
+  test("DNS-rebinding protection holds for explicit-host and authenticated servers", async () => {
+    const explicit = await serveHttp(
+      createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
+      { port: 0, host: "127.0.0.1" },
+    );
+    const authed = await serveHttp(
+      createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
+      { port: 0, auth: { bearerToken: "s3cr3t" } },
+    );
+    handles.push(explicit, authed);
+
+    for (const handle of [explicit, authed]) {
+      // Pass valid credentials for the authed server so the auth gate passes and
+      // the request actually reaches the Host check.
+      const authHeader = handle === authed ? "Bearer s3cr3t" : undefined;
+      // A foreign Host is still rejected even though host/auth is configured.
+      expect(await rawStatusAt(handle.port, "evil.example", authHeader)).toBe(400);
+      expect(await rawStatusAt(handle.port, `127.0.0.1:${handle.port}`, authHeader)).not.toBe(400);
+    }
+  });
+
+  test("an empty allowedHosts rejects every Host (fail-closed)", async () => {
+    const handle = await serveHttp(
+      createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
+      { port: 0, allowedHosts: [] },
+    );
+    handles.push(handle);
+
+    expect(await rawStatusAt(handle.port, "127.0.0.1:1")).toBe(400);
+    expect(await rawStatusAt(handle.port, "localhost")).toBe(400);
+    expect(await rawStatusAt(handle.port, "mcp.example.com")).toBe(400);
+  });
+
   test("a bind failure (port already in use) rejects serveHttp instead of hanging", async () => {
     const first = await serveHttp(
       createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
@@ -230,10 +267,12 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
 
 // Send a request with an arbitrary Host header (http.request allows overriding
 // Host, unlike fetch which forbids it).
-function rawStatusAt(port: number, hostHeader: string): Promise<number> {
+function rawStatusAt(port: number, hostHeader: string, authorization?: string): Promise<number> {
   return new Promise((resolve, reject) => {
+    const headers: Record<string, string> = { host: hostHeader };
+    if (authorization !== undefined) headers.authorization = authorization;
     const req = httpRequest(
-      { host: "127.0.0.1", port, path: "/mcp", method: "GET", headers: { host: hostHeader } },
+      { host: "127.0.0.1", port, path: "/mcp", method: "GET", headers },
       (res) => {
         res.resume();
         resolve(res.statusCode ?? 0);

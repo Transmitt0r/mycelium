@@ -41,10 +41,10 @@ port and interface (`handle.port`, `handle.host`).
 
 Bind-address defaulting is fail-safe: every server binds **127.0.0.1 (loopback) only** unless you
 pass an explicit `host`. MCP servers execute arbitrary configured tools, so exposing one is an
-explicit choice — set `host` to the desired interface (e.g. `"0.0.0.0"`) when you intend to put
-it behind a reverse proxy, and pair it with `auth` so the exposed endpoint isn't open. The default
-loopback server additionally rejects non-loopback `Host` headers (DNS-rebinding protection); use
-`allowedHosts` to permit specific hostnames.
+explicit choice — pair an explicit `host` (e.g. `"0.0.0.0"`) with `auth`, and list the hostname(s)
+your clients/proxy will use in `allowedHosts`. DNS-rebinding protection is always on: without
+`allowedHosts` only loopback `Host` headers are accepted (an empty `allowedHosts` accepts none),
+so a server reached via a proxied/LAN hostname must declare that hostname explicitly.
 
 `myTools` is an array of `BridgeableTool` — the same `{name, description, parameters, execute}`
 shape OpenClaw's `AnyAgentTool` already has, passed in unmodified.

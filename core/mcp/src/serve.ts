@@ -24,9 +24,9 @@ export interface ServeHttpOptions {
   auth?: ServeHttpAuth;
   /**
    * DNS-rebinding protection: allowlist of accepted `Host` header values
-   * (port-agnostic). When unset, only the default loopback-only server (no
-   * `auth`, no explicit `host`) is restricted — to loopback hostnames. An
-   * operator who opts into exposure controls the Host themselves, or sets this.
+   * (port-agnostic). Always enforced; when unset only loopback hostnames are
+   * accepted. Exposing a server (proxy/LAN) requires listing the hostname(s)
+   * clients will use here. An empty array rejects every Host.
    */
   allowedHosts?: string[];
 }
@@ -74,12 +74,7 @@ function basicCredentials(auth: ServeHttpAuth): string | undefined {
 // encodings of the same value are accepted, while garbage is rejected.
 function decodeBasic(credential: string): string | undefined {
   const normalized = credential.replace(/=+$/, "");
-  let decoded: Buffer;
-  try {
-    decoded = Buffer.from(normalized, "base64");
-  } catch {
-    return undefined;
-  }
+  const decoded = Buffer.from(normalized, "base64");
   if (decoded.toString("base64").replace(/=+$/, "") !== normalized) {
     return undefined;
   }
@@ -133,10 +128,13 @@ function validateAuth(auth: ServeHttpAuth | undefined): void {
     if (
       typeof auth.basic.username !== "string" ||
       auth.basic.username.length === 0 ||
+      // RFC 7617: a username must not contain ":" (it would be
+      // indistinguishable from the username/password separator).
+      auth.basic.username.includes(":") ||
       typeof auth.basic.password !== "string" ||
       auth.basic.password.length === 0
     ) {
-      throw new Error("serveHttp: auth.basic requires non-empty string username and password");
+      throw new Error("serveHttp: auth.basic requires non-empty username (no ':') and password");
     }
   }
   if (!auth.bearerToken && !auth.basic) {
@@ -144,8 +142,8 @@ function validateAuth(auth: ServeHttpAuth | undefined): void {
   }
 }
 
-// Extract the hostname from a Host header, dropping the port. Handles both
-// "host:port" and bracketed IPv6 like "[::1]:3000".
+// Extract the hostname from a Host header, dropping the port. Handles
+// "host:port", bracketed IPv6 like "[::1]:3000", and bare IPv6 like "::1".
 function hostName(hostHeader: string | undefined): string | undefined {
   if (!hostHeader) return undefined;
   let value = hostHeader.trim().toLowerCase();
@@ -153,6 +151,11 @@ function hostName(hostHeader: string | undefined): string | undefined {
     const end = value.indexOf("]");
     if (end === -1) return undefined;
     return value.slice(1, end);
+  }
+  const colons = value.split(":").length - 1;
+  if (colons > 1) {
+    // Bare IPv6 (no port) — don't mistake the address colons for a port separator.
+    return value;
   }
   const colon = value.lastIndexOf(":");
   if (colon !== -1) value = value.slice(0, colon);
@@ -162,16 +165,16 @@ function hostName(hostHeader: string | undefined): string | undefined {
 function hostAllowed(options: ServeHttpOptions, hostHeader: string | undefined): boolean {
   const explicit = options.allowedHosts;
   const name = hostName(hostHeader);
-  if (explicit && explicit.length > 0) {
+  if (explicit) {
+    // An empty allowlist fails closed: no Host is accepted.
+    if (explicit.length === 0) return false;
     return name !== undefined && explicit.includes(name);
   }
-  // Only the pure default (loopback binding, no explicit host, no auth) gets an
-  // automatic loopback-Host restriction as DNS-rebinding protection. An operator
-  // who opts into exposure (auth or explicit host) controls the Host themselves.
-  if (options.host === undefined && options.auth === undefined) {
-    return name !== undefined && LOOPBACK_HOSTS.includes(name);
-  }
-  return true;
+  // DNS-rebinding protection is always on, regardless of how the server is bound
+  // or authenticated. Without an explicit allowlist, only loopback hostnames are
+  // accepted — exposing the server (reverse proxy or LAN) means declaring the
+  // hostname(s) the clients/proxy will use via `allowedHosts`.
+  return name !== undefined && LOOPBACK_HOSTS.includes(name);
 }
 
 export async function serveHttp(
@@ -223,13 +226,19 @@ export async function serveHttp(
   await new Promise<void>((resolve, reject) => {
     const onError = (err: Error) => {
       httpServer.removeListener("error", onError);
+      // Best-effort cleanup: never throw from a failed bind, and disconnect the
+      // transport so a retry on the same Server starts clean. close() with a
+      // callback is safe even when the server never reached 'listening'.
       transport.close().catch(() => {});
-      httpServer.close();
+      httpServer.close(() => {});
       reject(err);
     };
     httpServer.once("error", onError);
     httpServer.listen(options.port, host, () => {
       httpServer.removeListener("error", onError);
+      // A runtime error after a successful bind must not crash the process;
+      // keep a permanent (quiet) handler that no longer rejects serveHttp.
+      httpServer.on("error", () => {});
       resolve();
     });
   });
