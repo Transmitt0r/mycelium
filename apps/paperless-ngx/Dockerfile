@@ -32,6 +32,11 @@ RUN corepack enable
 WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile
+# Build the workspace `core/*` deps first: @transmitt0r/mycelium-mcp/embed/index
+# have gitignored dist/, so the app's `pnpm deploy` must copy their *built*
+# output into /app/node_modules or the runtime ERR_MODULE_NOT_FOUNDs on
+# dist/mcp-server.js importing '@transmitt0r/mycelium-mcp'.
+RUN pnpm -r --filter './core/*' run build
 RUN pnpm --filter @transmitt0r/openclaw-plugin-paperless-ngx... run build
 # `deploy` resolves workspace:* deps (@transmitt0r/mycelium-embed/index/mcp)
 # into a real, self-contained node_modules -- no symlinks
