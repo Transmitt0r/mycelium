@@ -13,28 +13,41 @@ between the two — not a reimplementation of either.
 ```ts
 import { createMcpServer, serveStdio, serveHttp } from "@transmitt0r/mycelium-mcp";
 
-const server = createMcpServer(myTools, { name: "my-plugin", version: "1.0.0" });
+const tools = [...];
 
 // stdio — for MCP clients that spawn a subprocess
-await serveStdio(server);
+await serveStdio(createMcpServer(tools, { name: "my-plugin", version: "1.0.0" }));
 
-// or Streamable HTTP — for anything else
-const handle = await serveHttp(server, {
-  port: 3000,
-  // host: "127.0.0.1",              // bind a specific interface (default: loopback)
-  // path: "/mcp",                   // request path (default: /mcp)
-  // auth: { bearerToken: "secret" } // or { basic: { username, password } }
-});
+// or Streamable HTTP — for anything else. Streamable HTTP mounts one transport
+// (and one Server) per session, so serveHttp takes a *factory* that returns a
+// fresh Server for every new client session.
+const handle = await serveHttp(
+  () => createMcpServer(tools, { name: "my-plugin", version: "1.0.0" }),
+  {
+    port: 3000,
+    // host: "127.0.0.1",              // bind a specific interface (default: loopback)
+    // path: "/mcp",                   // request path (default: /mcp)
+    // auth: { bearerToken: "secret" } // or { basic: { username, password } }
+  },
+);
 // handle.close() to shut down
 ```
 
 `serveHttp` optionally enforces an `Authorization` check before handling any request:
 - `auth.bearerToken` requires `Authorization: Bearer <token>` (compared in constant time).
-- `auth.basic` requires `Authorization: Basic base64(username:password)` (compared in constant time, after decoding).
+- `auth.basic` requires `Authorization: Basic <base64(username:password)>` (compared in constant time, after decoding).
 - `host` controls the local interface the listener binds.
 - `allowedHosts` sets an explicit `Host` allowlist (DNS-rebinding protection).
 - `allowedOrigins` sets an explicit `Origin` allowlist for browser-based clients.
+- `maxSessions` caps simultaneously-open sessions (default 100, rejected with 503 beyond that).
+- `sessionIdleTimeoutMs` reaps sessions idle for that long (default 15 min; `0` disables; a session
+  with a still-open stream is never reaped).
 - `onServerError` is an optional observer for server errors after a successful bind.
+
+Each MCP client session gets its own transport, and the `Mcp-Session-Id` header it echoes back is
+the only link between that client's requests — treat it like a bearer token (store/forward it, and
+don't log it, since proxies commonly log request headers), because anyone who holds a valid id can
+drive that session after passing the auth gate.
 
 Requests that fail the check get `401` with a `WWW-Authenticate` challenge advertising only the
 configured schemes (Bearer and/or Basic). The auth check runs before any path handling, so an

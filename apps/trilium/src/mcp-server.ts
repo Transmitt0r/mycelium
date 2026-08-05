@@ -126,20 +126,29 @@ async function main(): Promise<void> {
   // JSON Schema object at runtime (which is all BridgeableTool actually
   // needs), but TSchema declares no string index signature, so it doesn't
   // structurally satisfy Record<string, unknown> on its own.
-  const server = createMcpServer(tools as unknown as BridgeableTool[], {
-    name: "trilium",
-    version: packageVersion(),
-  });
 
   const transportConfig = readTransportConfig(process.env);
   let httpHandle: HttpServerHandle | undefined;
   if (transportConfig.transport === "http") {
-    httpHandle = await serveHttp(server, {
-      port: transportConfig.port,
-      path: transportConfig.path,
-    });
+    // Streamable HTTP mounts one Server per session, so hand over a factory.
+    httpHandle = await serveHttp(
+      () =>
+        createMcpServer(tools as unknown as BridgeableTool[], {
+          name: "trilium",
+          version: packageVersion(),
+        }),
+      {
+        port: transportConfig.port,
+        path: transportConfig.path,
+      },
+    );
     logger.info?.(`listening on :${httpHandle.port}${transportConfig.path ?? "/mcp"}`);
   } else {
+    // Only the stdio path needs a standalone, eagerly-created Server.
+    const server = createMcpServer(tools as unknown as BridgeableTool[], {
+      name: "trilium",
+      version: packageVersion(),
+    });
     await serveStdio(server);
     logger.info?.("listening on stdio");
   }

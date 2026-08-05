@@ -1,5 +1,9 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { createServer as createHttpServer, type IncomingMessage } from "node:http";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -11,7 +15,7 @@ export async function serveStdio(server: Server): Promise<void> {
 export interface ServeHttpAuth {
   /** Require `Authorization: Bearer <token>` on every request. */
   bearerToken?: string;
-  /** Require `Authorization: Basic base64(username:password)` on every request. */
+  /** Require `Authorization: Basic <base64("username:password")>` on every request. */
   basic?: { username: string; password: string };
 }
 
@@ -38,6 +42,22 @@ export interface ServeHttpOptions {
   allowedOrigins?: string[];
   /** Optional handler for server errors after a successful bind (e.g. to log). */
   onServerError?: (err: Error) => void;
+  /**
+   * Upper bound on simultaneously-open sessions. New sessions beyond this cap
+   * are rejected with 503 (Service Unavailable). Guards against unbounded
+   * memory growth from a misbehaving client opening endless sessions.
+   * Defaults to 100.
+   */
+  maxSessions?: number;
+  /**
+   * Idle timeout for established sessions, in milliseconds. A session that
+   * receives no request for this long is closed and its slot released, so
+   * abandoned clients can't accumulate and exhaust `maxSessions` forever
+   * (Streamable HTTP sessions only end when the client sends DELETE or the
+   * server reaps them — a bare client close sends no DELETE). Defaults to
+   * 15 minutes; set `0` to disable idle reaping.
+   */
+  sessionIdleTimeoutMs?: number;
 }
 
 export interface HttpServerHandle {
@@ -217,15 +237,121 @@ function originAllowed(
   return allowedOrigins.includes(originHeader.toLowerCase());
 }
 
+// Streamable HTTP mounts one transport per session, and an @modelcontextprotocol
+// Server instance can only own a single transport (Protocol.connect throws on a
+// second connect). So serveHttp takes a *factory* rather than a server instance:
+// each incoming session that initializes gets its own fresh Server + transport,
+// keyed by the Mcp-Session-Id the client echoes back on subsequent requests.
 export async function serveHttp(
-  server: Server,
+  createServer: () => Server,
   options: ServeHttpOptions,
 ): Promise<HttpServerHandle> {
   const path = options.path ?? "/mcp";
+  const maxSessions = options.maxSessions ?? 100;
   validateAuth(options.auth);
   validateHostLists(options);
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
-  await server.connect(transport);
+  // Fail fast like the other options: a NaN/negative/fractional cap (e.g. from
+  // `Number(process.env...)`) would silently disarm the DoS guard, so reject it
+  // rather than let it weaken the limit at runtime.
+  if (!Number.isInteger(maxSessions) || maxSessions < 1) {
+    throw new Error("serveHttp: maxSessions must be a positive integer when provided");
+  }
+  const sessionIdleTimeoutMs = options.sessionIdleTimeoutMs ?? 15 * 60_000;
+  if (!Number.isInteger(sessionIdleTimeoutMs) || sessionIdleTimeoutMs < 0) {
+    throw new Error("serveHttp: sessionIdleTimeoutMs must be a non-negative integer when provided");
+  }
+  const transports = new Map<string, StreamableHTTPServerTransport>();
+  // Per-session last-activity stamp (epoch ms), refreshed on every request a
+  // session receives and fed to the idle reaper so abandoned sessions — which
+  // never send DELETE — are closed instead of pinning a session slot forever.
+  const lastSeen = new Map<string, number>();
+  // Number of currently-open responses per session (an SSE stream stays open
+  // for the life of the session). A session with an open stream is alive even
+  // if it hasn't sent a request recently, so the reaper must not harvest it.
+  const openResponses = new Map<string, number>();
+  // Set once handle.close() begins: reject requests that race the shutdown
+  // (after transports.clear()) instead of reserving slots on a dying listener.
+  let closing = false;
+  // Synchronously-reserved session count. Unlike `transports.size` (which only
+  // updates when an initialize completes, i.e. asynchronously), this is bumped
+  // in the same tick a new-session request is accepted, so parallel initialize
+  // requests can't all slip past the maxSessions check before any is counted.
+  let sessions = 0;
+
+  // Idle reaper: closes sessions that have gone silent, so abandoned clients
+  // (which never send DELETE) can't pin a slot and exhaust `maxSessions` for
+  // good. Sweeps at most once a minute (or the timeout, if it's shorter).
+  let idleTimer: ReturnType<typeof setInterval> | undefined;
+  if (sessionIdleTimeoutMs > 0) {
+    idleTimer = setInterval(sweepIdle, Math.min(sessionIdleTimeoutMs, 60_000));
+    idleTimer.unref?.();
+  }
+  // Globally-idempotent slot release. onclose, the sweeper's failure path, and the
+  // aborted-request backstop all funnel here, so a session's slot + map entries are
+  // released exactly once no matter how many close() calls / teardown paths race it.
+  const releasedTransports = new WeakSet<StreamableHTTPServerTransport>();
+  // Per-session Server created by the factory, looked up by its transport so every
+  // release path (including the reaper's close()-failure branch) can tear it down.
+  const sessionServers = new WeakMap<StreamableHTTPServerTransport, Server>();
+  function releaseSlot(transport: StreamableHTTPServerTransport): void {
+    if (releasedTransports.has(transport)) return;
+    releasedTransports.add(transport);
+    sessions--;
+    const id = transport.sessionId;
+    if (id) {
+      transports.delete(id);
+      lastSeen.delete(id);
+      openResponses.delete(id);
+    }
+    const server = sessionServers.get(transport);
+    sessionServers.delete(transport);
+    if (server) void server.close().catch(() => {});
+  }
+
+  // A session is only harvestable when it has neither recent activity nor any
+  // still-open response stream (SSE). `?? 0` keeps an entry whose stamp is
+  // somehow missing reapable rather than pinning its slot forever.
+  function trackOpen(sessionId: string, res: ServerResponse): void {
+    if (res.closed || res.destroyed) {
+      // Response already gone (abort raced the registration) — the close handler
+      // below would never fire, so don't leave a phantom open-stream count.
+      return;
+    }
+    openResponses.set(sessionId, (openResponses.get(sessionId) ?? 0) + 1);
+    res.once("close", () => {
+      const n = openResponses.get(sessionId);
+      if (n === undefined || n <= 1) {
+        openResponses.delete(sessionId);
+        // Start the idle clock when the session's LAST stream actually goes away,
+        // so a transient SSE drop (proxy idle timeout, network blip) gives the
+        // client a full idle window to reconnect rather than being reaped at the
+        // next sweep on an arbitrarily-old arrival stamp.
+        lastSeen.set(sessionId, Date.now());
+      } else {
+        openResponses.set(sessionId, n - 1);
+      }
+    });
+  }
+  function sweepIdle(): void {
+    const now = Date.now();
+    for (const [id, transport] of transports) {
+      const seen = lastSeen.get(id) ?? 0;
+      const open = (openResponses.get(id) ?? 0) > 0;
+      if (!open && now - seen > sessionIdleTimeoutMs) {
+        void transport.close().then(
+          () => {
+            // On success the transport fires onclose, which runs releaseSlot.
+          },
+          (err) => {
+            // close() rejected before firing onclose: hard-release so the session
+            // can't leak and isn't re-reaped / re-routed every sweep.
+            releaseSlot(transport);
+            options.onServerError?.(err instanceof Error ? err : new Error(String(err)));
+          },
+        );
+      }
+    }
+  }
 
   // Fail-safe default: bind loopback only. MCP servers execute arbitrary
   // configured tools, so exposing one (e.g. behind a reverse proxy or on a LAN)
@@ -236,51 +362,167 @@ export async function serveHttp(
   const allowedHosts = options.allowedHosts?.map((h) => h.toLowerCase());
   const allowedOrigins = options.allowedOrigins?.map((o) => o.toLowerCase());
 
-  const httpServer = createHttpServer((req, res) => {
-    try {
-      // Authorize before the path check so unauthenticated clients can't tell a
-      // valid MCP path (401) from a bogus one (404) — no server-path enumeration.
-      if (options.auth && !requestAuthorized(options.auth, req)) {
-        res.writeHead(401, { "WWW-Authenticate": wwwAuthenticate(options.auth) }).end();
-        return;
-      }
-      // DNS-rebinding protection + optional Origin validation.
-      if (!hostAllowed(allowedHosts, req.headers.host)) {
-        res.writeHead(400).end();
-        return;
-      }
-      if (!originAllowed(allowedOrigins, req.headers.origin)) {
-        res.writeHead(400).end();
-        return;
-      }
-      const url = new URL(req.url ?? "/", "http://localhost");
-      if (url.pathname !== path) {
-        res.writeHead(404).end();
-        return;
-      }
-      transport.handleRequest(req, res).catch((err: unknown) => {
+  const httpServer = createHttpServer(
+    {
+      // Bound the *request* phase so a client that never completes a body
+      // (slow-loris) can't pin a reserved session slot indefinitely. On the
+      // modern Node this repo targets (≥18.11), requestTimeout/headersTimeout
+      // time receiving the REQUEST only and are cleared on response finish, so
+      // a long-lived SSE response and a slow tool call are unaffected. The node
+      // engines field is the source of truth for the minimum supported runtime.
+      requestTimeout: 30_000,
+      headersTimeout: 15_000,
+    },
+    (req, res) => {
+      try {
+        // Authorize before the path check so unauthenticated clients can't tell a
+        // valid MCP path (401) from a bogus one (404) — no server-path enumeration.
+        if (options.auth && !requestAuthorized(options.auth, req)) {
+          res.writeHead(401, { "WWW-Authenticate": wwwAuthenticate(options.auth) }).end();
+          return;
+        }
+        // DNS-rebinding protection + optional Origin validation.
+        if (!hostAllowed(allowedHosts, req.headers.host)) {
+          res.writeHead(400).end();
+          return;
+        }
+        if (!originAllowed(allowedOrigins, req.headers.origin)) {
+          res.writeHead(400).end();
+          return;
+        }
+        const url = new URL(req.url ?? "/", "http://localhost");
+        if (url.pathname !== path) {
+          res.writeHead(404).end();
+          return;
+        }
+        if (closing) {
+          // Shutdown is draining: don't accept work on a dying listener.
+          res.writeHead(503).end();
+          return;
+        }
+
+        const sessionId = req.headers["mcp-session-id"]?.toString();
+        if (sessionId !== undefined && sessionId.length > 0) {
+          // Client presented a session id — it must map to a live session.
+          const existing = transports.get(sessionId);
+          if (!existing) {
+            // Unknown/expired session id: reject per spec, never spawn a new one.
+            res.writeHead(404).end();
+            return;
+          }
+          // Re-arm the idle clock for this session.
+          lastSeen.set(sessionId, Date.now());
+          // A GET/SSE stream stays open for the session's life; mark it so the
+          // idle reaper doesn't harvest a live (but quiet) session.
+          trackOpen(sessionId, res);
+          existing.handleRequest(req, res).catch(respondWithError(res, options.onServerError));
+          return;
+        }
+
+        // No session id → a fresh (initialize) session is being attempted. Reserve
+        // a slot synchronously (same tick), so parallel initialize requests can't
+        // all slip past the cap before any completion is counted. The reservation
+        // is released via the transport's onclose once it exists; if construction
+        // itself throws below, the catch releases it so no slot ever leaks.
+        if (sessions >= maxSessions) {
+          res.writeHead(503).end();
+          return;
+        }
+        sessions++;
+
+        // Let a fresh per-session transport decide: if this request is a valid
+        // initialize it assigns the session id and registers itself. If it turns
+        // out not to be (malformed JSON-RPC, stale id without a header, etc.) the
+        // transport is never registered — tear it down so it can't leak.
+        // `server` stays unassigned until the factory runs; releaseSlot reads it
+        // as undefined then, which is handled (no TDZ).
+        let server: Server | undefined;
+        let transport: StreamableHTTPServerTransport;
+        try {
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: (id) => {
+              // Never register on a dying listener or a transport that was already
+              // released (e.g. an abort race where the client dropped the request
+              // mid-parse: onclose fired with sessionId still undefined). Registering
+              // a dead transport would leak it in the maps — a later close() is a
+              // releaseSlot no-op and the reaper's open-stream rule would pin it.
+              if (closing || releasedTransports.has(transport)) {
+                void transport.close().catch(() => {});
+                return;
+              }
+              transports.set(id, transport);
+              lastSeen.set(id, Date.now());
+              // The (possibly SSE) initialize response stays open for the session's
+              // life — count it so the reaper won't harvest a freshly-open session.
+              trackOpen(id, res);
+            },
+          });
+        } catch (err) {
+          // Construction failed before any release path owned the reservation —
+          // no transport exists to releaseSlot, so undo the reservation directly.
+          sessions--;
+          throw err;
+        }
+        // Releasing the reserved slot (and any registered session) is the transport's
+        // onclose hook, which funnels into releaseSlot (globally idempotent) — DELETE
+        // teardown, handle.close, the idle reaper and the abort backstop can never
+        // double-release a slot.
+        //
+        // NOTE: this relies on Protocol.connect (SDK ≥1.30 chains it; verified) reading
+        // the transport's existing onclose and chaining it rather than overwriting it.
+        // If a future SDK stops chaining, sessions-- would never run and the cap would
+        // silently stick at maxSessions — the DELETE-reconnect and idle-reap tests in
+        // serve.test.ts guard specifically against that regression.
+        transport.onclose = () => releaseSlot(transport);
+        // Backstop for a slot that would otherwise never be freed: if the client
+        // aborts before the request ever settles (so neither the leak-guard above
+        // nor onclose runs) and no session was registered, release the reserved
+        // slot on response close. Idempotent — releaseSlot makes double close a no-op.
+        res.once("close", () => {
+          if (transport.sessionId === undefined) {
+            void transport.close().catch(() => {});
+          }
+        });
+        try {
+          server = createServer();
+          sessionServers.set(transport, server);
+        } catch (err) {
+          // A throwing factory must not leak the reserved slot or the transport.
+          void transport.close().catch(() => {});
+          throw err;
+        }
+        void server
+          .connect(transport)
+          .then(() => transport.handleRequest(req, res))
+          .catch(respondWithError(res, options.onServerError))
+          .finally(() => {
+            // Leak guard: a request that never initialized a session was never
+            // registered and only our close() will release its slot. Clean it up.
+            if (transport.sessionId === undefined) {
+              return transport.close().catch(() => {});
+            }
+          });
+      } catch (err) {
+        // Never let a malformed request crash the process, and never leak internals.
         if (!res.headersSent) res.writeHead(500);
         res.end(INTERNAL_ERROR);
         options.onServerError?.(err instanceof Error ? err : new Error(String(err)));
-      });
-    } catch (err) {
-      // Never let a malformed request crash the process, and never leak internals.
-      if (!res.headersSent) res.writeHead(500);
-      res.end(INTERNAL_ERROR);
-      options.onServerError?.(err instanceof Error ? err : new Error(String(err)));
-    }
-  });
+      }
+    },
+  );
 
   // Surface bind failures (EADDRINUSE, EADDRNOTAVAIL) instead of hanging the
-  // promise on an unhandled 'error' event, and clean up the connected transport
-  // and socket so a retry starts from a clean state.
+  // promise on an unhandled 'error' event, and clean up connected transports
+  // and sockets so a retry starts from a clean state.
   await new Promise<void>((resolve, reject) => {
     const onError = (err: Error) => {
       httpServer.removeListener("error", onError);
-      // Best-effort cleanup: never throw from a failed bind, and disconnect the
-      // transport so a retry on the same Server starts clean. close() with a
-      // callback is safe even when the server never reached 'listening'.
-      transport.close().catch(() => {});
+      if (idleTimer) clearInterval(idleTimer);
+      // Best-effort cleanup: never throw from a failed bind, and disconnect any
+      // transports so a retry on the same factory starts clean.
+      Promise.allSettled([...transports.values()].map((t) => t.close())); // eslint-disable-line @typescript-eslint/no-floating-promises
+      transports.clear();
       httpServer.close(() => {});
       reject(err);
     };
@@ -302,10 +544,39 @@ export async function serveHttp(
     port: actualPort,
     host: boundHost,
     async close() {
-      await transport.close();
-      await new Promise<void>((resolve, reject) =>
-        httpServer.close((err) => (err ? reject(err) : resolve())),
-      );
+      closing = true;
+      if (idleTimer) clearInterval(idleTimer);
+      await Promise.allSettled([...transports.values()].map((t) => t.close()));
+      transports.clear();
+      // httpServer.close() waits for all connections. Idle keep-alive sockets held
+      // open by clients would otherwise block shutdown, so close idle ones first,
+      // then force-close any stragglers (e.g. a slow-loris request mid-body) so the
+      // shutdown promise can't wait out the full requestTimeout.
+      await new Promise<void>((resolve, reject) => {
+        httpServer.close((err) => (err ? reject(err) : resolve()));
+        httpServer.closeIdleConnections?.();
+        httpServer.closeAllConnections?.();
+      });
     },
+  };
+}
+
+function respondWithError(res: ServerResponse, onServerError: ((err: Error) => void) | undefined) {
+  return (err: unknown) => {
+    try {
+      if (!res.headersSent) {
+        // Nothing sent yet: a clean 500 with the generic body.
+        res.writeHead(500);
+        res.end(INTERNAL_ERROR);
+      } else if (!res.writableEnded) {
+        // Headers already written (e.g. an in-flight SSE stream): don't inject a
+        // raw text body into the stream, which would corrupt it — just close it.
+        // The `writableEnded` guard also avoids ERR_STREAM_ALREADY_FINISHED.
+        res.end();
+      }
+    } catch {
+      // The response may already be destroyed (socket gone) — nothing to write.
+    }
+    onServerError?.(err instanceof Error ? err : new Error(String(err)));
   };
 }
