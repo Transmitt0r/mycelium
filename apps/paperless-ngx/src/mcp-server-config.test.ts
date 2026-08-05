@@ -275,14 +275,16 @@ describe("readTransportConfig", () => {
     );
   });
 
-  it("refuses a non-loopback bind whose MCP_ALLOWED_HOSTS includes a loopback name", () => {
+  it("rejects invalid MCP_ALLOWED_HOSTS entries (scheme, port, whitespace)", () => {
     expect(() =>
-      readTransportConfig({
-        MCP_TRANSPORT: "http",
-        MCP_BIND_HOST: "0.0.0.0",
-        MCP_ALLOWED_HOSTS: "mcp.grotz.io,localhost",
-      }),
-    ).toThrow("MCP_ALLOWED_HOSTS contains a loopback hostname");
+      readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "mcp.grotz.io:8443" }),
+    ).toThrow("MCP_ALLOWED_HOSTS contains an invalid host entry");
+    expect(() =>
+      readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "https://mcp.grotz.io" }),
+    ).toThrow("MCP_ALLOWED_HOSTS contains an invalid host entry");
+    expect(() =>
+      readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "mcp.grotz.io/path" }),
+    ).toThrow("MCP_ALLOWED_HOSTS contains an invalid host entry");
   });
 
   it("trims surrounding whitespace from MCP_BIND_HOST", () => {

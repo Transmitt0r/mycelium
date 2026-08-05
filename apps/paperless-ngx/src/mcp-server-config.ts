@@ -98,20 +98,32 @@ function parseBindHost(env: NodeJS.ProcessEnv, name: string, fallback: string): 
 
 // Parses a comma-separated Host allowlist (DNS-rebinding protection). Unset or
 // whitespace-only yields undefined (loopback-only default); otherwise returns a
-// trimmed, de-duplicated array of non-empty hostnames, or undefined when the
-// value ends up empty after trimming.
+// trimmed, de-duplicated array. Entries are validated as bare hostnames/IPs so
+// a typo'd entry (scheme, path, port, whitespace) can't silently match nothing
+// and 400 every request (core/mcp strips the port before comparing, so e.g.
+// "mcp.example.com:8443" would never match any Host header).
 function parseHostList(env: NodeJS.ProcessEnv, name: string): string[] | undefined {
   const raw = env[name];
   if (raw === undefined || raw.trim() === "") return undefined;
-  const hosts = Array.from(
-    new Set(
-      raw
-        .split(",")
-        .map((h) => h.trim())
-        .filter((h) => h.length > 0),
-    ),
-  );
-  return hosts.length > 0 ? hosts : undefined;
+  const entries = raw
+    .split(",")
+    .map((h) => h.trim())
+    .filter((h) => h.length > 0);
+  if (entries.length === 0) return undefined;
+  for (const entry of entries) {
+    if (
+      /\s/.test(entry) ||
+      entry.includes("://") ||
+      entry.includes("/") ||
+      /^[^:\s]+:\d+$/.test(entry)
+    ) {
+      throw new Error(
+        `${name} contains an invalid host entry ${JSON.stringify(entry)} ` +
+          "(expected a bare hostname/IP, no scheme, path, port, or whitespace)",
+      );
+    }
+  }
+  return Array.from(new Set(entries));
 }
 
 // Only the loopback interfaces are considered safe to bind unauthenticated
@@ -198,23 +210,18 @@ export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
     // behind an authenticated reverse proxy -- which always sends a real
     // hostname, so MCP_ALLOWED_HOSTS is never an unreasonable burden.
     if (!isLoopbackHost(host)) {
-      // Non-loopback bind = network exposure. The app has no built-in auth, so:
-      // 1) an explicit host allowlist is mandatory, and
-      // 2) it must not contain loopback names -- core/mcp's DNS-rebinding check
-      //    compares only the client-controlled Host header, so 'localhost' in
-      //    the allowlist would let any remote client bypass it with
-      //    'Host: localhost'. A real reverse proxy always sends a real
-      //    hostname, so rejecting loopback entries never blocks that path.
+      // Non-loopback bind = network exposure that the app itself cannot
+      // authenticate (no built-in auth; the owner's architecture puts auth at
+      // the reverse proxy). Require an explicit host allowlist so the operator
+      // states which Host header the server will accept -- a bare 0.0.0.0 with
+      // the default loopback-only allowlist would be a footgun. Note this is
+      // NOT access control: the Host header is client-controlled, so the real
+      // boundary for a non-loopback bind is the network/perimeter (private
+      // bridge + authenticated reverse proxy).
       if (allowedHosts === undefined) {
         throw new Error(
           `MCP_BIND_HOST is bound to non-loopback interface "${host}" but MCP_ALLOWED_HOSTS is not set ` +
             "(the app has no built-in auth)",
-        );
-      }
-      if (allowedHosts.some((h) => isLoopbackHost(h))) {
-        throw new Error(
-          `MCP_BIND_HOST is bound to non-loopback interface "${host}" but MCP_ALLOWED_HOSTS contains a ` +
-            "loopback hostname, which lets any client bypass DNS-rebinding protection via Host: localhost",
         );
       }
     }
