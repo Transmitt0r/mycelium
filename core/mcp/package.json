@@ -1,6 +1,6 @@
 {
   "name": "@transmitt0r/mycelium-mcp",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Bridge agent-tool factories (OpenClaw's AnyAgentTool shape) onto a standalone MCP server, over stdio and Streamable HTTP.",
   "type": "module",
   "main": "./dist/index.js",
