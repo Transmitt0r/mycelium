@@ -17,18 +17,16 @@ jobs:
       # to release) must not stop the others.
       fail-fast: false
       matrix:
-        # image is the GHCR image basename (lowercase applied at build time);
-        # onepassword ships no Dockerfile, so it writes no version file.
+        # Image GHCR-basename lives in publish-images' own matrix; here we
+        # only need app + package. onepassword ships no Dockerfile and no
+        # record-release successCmd, so it produces no .release.json.
         include:
           - app: paperless-ngx
             package: '@transmitt0r/openclaw-plugin-paperless-ngx'
-            image: mycelium-paperless-ngx-mcp
           - app: trilium
             package: '@transmitt0r/openclaw-plugin-trilium'
-            image: mycelium-trilium-mcp
           - app: onepassword
             package: '@transmitt0r/openclaw-plugin-onepassword'
-            image: ''
     permissions:
       contents: write # to publish a GitHub release and push the release tag
       issues: write # to comment on released issues
@@ -87,33 +85,16 @@ jobs:
           # semantic-release has actually decided to publish a release.
           CLAWHUB_API_KEY: ${{ secrets.CLAWHUB_API_KEY }}
 
-      # Announce the released version for the publish-images job by writing a
-      # per-app info file to an artifact. Only runs on success() (the default
-      # after a fully successful `pnpm run release` for THIS app), so a leg
-      # that didn't release produces no file -> no image for it. Each matrix
-      # leg writes a flat, uniquely named file and uploads it under a UNIQUE
-      # artifact name (upload-artifact v4 forbids two uploads with the same
-      # name in one run), so there is no collision or ordering race.
-      - name: Record released version
-        env:
-          TRIGGER_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          IMAGE="${{ matrix.image }}"
-          if [[ -z "$IMAGE" ]]; then
-            echo "{}" > "${{ matrix.app }}.release.json"
-            exit 0
-          fi
-          PREFIX="${{ matrix.package }}-"
-          # Tag AT the released commit (--points-at dereferences annotated
-          # tags; version-sort so the newest of any same-commit tags wins).
-          TAG=$(git tag --points-at "$TRIGGER_SHA" "${PREFIX}v*" --sort=v:refname | tail -1)
-          VERSION="${TAG#$PREFIX}"
-          # Write plain JSON. Version may be empty (no tag at this commit).
-          printf '{"app":"%s","image":"%s","version":"%s"}\n' \
-            "${{ matrix.app }}" "$IMAGE" "$VERSION" \
-            > "${{ matrix.app }}.release.json"
-
+      # Announce the released version for the publish-images job. Each app's
+      # .releaserc.json's @semantic-release/exec successCmd
+      # (scripts/record-release-version.sh) writes <app>.release.json at the
+      # repo root ONLY when semantic-release actually published a release for
+      # this app in this run -- the authoritative nextRelease.version, not an
+      # inference from the git tag. A leg that didn't release (no-op re-run,
+      # nothing to release, or a failed release stage) produces no file -> no
+      # image. Each matrix leg uploads under a UNIQUE artifact name
+      # (upload-artifact v4 forbids two uploads with the same name in one
+      # run), so there is no collision or ordering race.
       - name: Upload release info
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -196,7 +177,10 @@ jobs:
             exit 1
           fi
           IMAGE="ghcr.io/${OWNER,,}/${{ matrix.image }}"
-          TAGS="${IMAGE}:${VERSION},${IMAGE}:${VERSION#v}"
+          # Normalize to a bare version + a v-prefixed alias so the two are
+          # never duplicated (nextRelease.version is bare, e.g. 1.1.0).
+          BARE="${VERSION#v}"
+          TAGS="${IMAGE}:v${BARE},${IMAGE}:${BARE}"
           if [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             TAGS="${TAGS},${IMAGE}:latest"
           fi
