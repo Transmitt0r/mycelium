@@ -19,9 +19,22 @@ const server = createMcpServer(myTools, { name: "my-plugin", version: "1.0.0" })
 await serveStdio(server);
 
 // or Streamable HTTP — for anything else
-const handle = await serveHttp(server, { port: 3000 });
+const handle = await serveHttp(server, {
+  port: 3000,
+  // host: "127.0.0.1",              // bind a specific interface (default: all)
+  // path: "/mcp",                   // request path (default: /mcp)
+  // auth: { bearerToken: "secret" } // or { basic: { username, password } }
+});
 // handle.close() to shut down
 ```
+
+`serveHttp` optionally enforces an `Authorization` check before handling any request:
+- `auth.bearerToken` requires `Authorization: Bearer <token>`.
+- `auth.basic` requires `Authorization: Basic base64(username:password)`.
+- `host` controls the local interface the listener binds (defaults to all interfaces).
+
+Requests that fail the check get `401` with a `WWW-Authenticate` challenge; unauthenticated
+servers (no `auth` option) behave exactly as before.
 
 `myTools` is an array of `BridgeableTool` — the same `{name, description, parameters, execute}`
 shape OpenClaw's `AnyAgentTool` already has, passed in unmodified.
