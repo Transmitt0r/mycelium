@@ -1,5 +1,29 @@
 # @transmitt0r/mycelium-mcp
 
+## 0.2.0
+
+### Minor Changes
+
+- 37de317: Lift core/mcp onto the official high-level `McpServer` + stateless Streamable HTTP.
+
+  - `serveHttp` now serves **stateless** Streamable HTTP (the 2026-07-28 MCP spec
+    revision) instead of the hand-wired per-session transport model. There is no
+    protocol-level session anymore: every HTTP request is independent and gets a
+    fresh `McpServer` + stateless transport from the SDK, so the session ceremony
+    (transport map, `Mcp-Session-Id` routing/404s, `maxSessions` cap, idle reaper)
+    is gone.
+  - **Breaking (pre-1.0):** the `maxSessions` and `sessionIdleTimeoutMs` options are
+    removed — they guarded per-session state that no longer exists.
+  - `createMcpServer` returns the official high-level `McpServer`. Tools are still
+    registered at the protocol layer (not `McpServer.registerTool`) so the arbitrary
+    TypeBox JSON Schema in `BridgeableTool.parameters` — and tool annotations — pass
+    through byte-for-byte unchanged; `registerTool` is Zod-only and would re-serialize
+    the schema.
+  - The lift relies on the SDK's stateless support, available since
+    `@modelcontextprotocol/sdk` `^1.30.0` (the existing dependency — resolved to
+    `1.30.0` in the lockfile, whose `StreamableHTTPServerTransport` supports
+    stateless mode via `sessionIdGenerator: undefined`).
+
 ## 0.1.0
 
 ### Minor Changes
