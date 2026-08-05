@@ -46,7 +46,8 @@ const handle = await serveHttp(
 
 Each MCP client session gets its own transport, and the `Mcp-Session-Id` header it echoes back is
 the only link between that client's requests — treat it like a bearer token (store/forward it, and
-don't log it), since anyone who holds a valid id can drive that session after passing the auth gate.
+don't log it, since proxies commonly log request headers), because anyone who holds a valid id can
+drive that session after passing the auth gate.
 
 Requests that fail the check get `401` with a `WWW-Authenticate` challenge advertising only the
 configured schemes (Bearer and/or Basic). The auth check runs before any path handling, so an

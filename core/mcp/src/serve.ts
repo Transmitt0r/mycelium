@@ -290,7 +290,10 @@ export async function serveHttp(
   // aborted-request backstop all funnel here, so a session's slot + map entries are
   // released exactly once no matter how many close() calls / teardown paths race it.
   const releasedTransports = new WeakSet<StreamableHTTPServerTransport>();
-  function releaseSlot(transport: StreamableHTTPServerTransport, server?: Server): void {
+  // Per-session Server created by the factory, looked up by its transport so every
+  // release path (including the reaper's close()-failure branch) can tear it down.
+  const sessionServers = new WeakMap<StreamableHTTPServerTransport, Server>();
+  function releaseSlot(transport: StreamableHTTPServerTransport): void {
     if (releasedTransports.has(transport)) return;
     releasedTransports.add(transport);
     sessions--;
@@ -300,6 +303,8 @@ export async function serveHttp(
       lastSeen.delete(id);
       openResponses.delete(id);
     }
+    const server = sessionServers.get(transport);
+    sessionServers.delete(transport);
     if (server) void server.close().catch(() => {});
   }
 
@@ -315,8 +320,16 @@ export async function serveHttp(
     openResponses.set(sessionId, (openResponses.get(sessionId) ?? 0) + 1);
     res.once("close", () => {
       const n = openResponses.get(sessionId);
-      if (n === undefined || n <= 1) openResponses.delete(sessionId);
-      else openResponses.set(sessionId, n - 1);
+      if (n === undefined || n <= 1) {
+        openResponses.delete(sessionId);
+        // Start the idle clock when the session's LAST stream actually goes away,
+        // so a transient SSE drop (proxy idle timeout, network blip) gives the
+        // client a full idle window to reconnect rather than being reaped at the
+        // next sweep on an arbitrarily-old arrival stamp.
+        lastSeen.set(sessionId, Date.now());
+      } else {
+        openResponses.set(sessionId, n - 1);
+      }
     });
   }
   function sweepIdle(): void {
@@ -461,7 +474,7 @@ export async function serveHttp(
         // If a future SDK stops chaining, sessions-- would never run and the cap would
         // silently stick at maxSessions — the DELETE-reconnect and idle-reap tests in
         // serve.test.ts guard specifically against that regression.
-        transport.onclose = () => releaseSlot(transport, server);
+        transport.onclose = () => releaseSlot(transport);
         // Backstop for a slot that would otherwise never be freed: if the client
         // aborts before the request ever settles (so neither the leak-guard above
         // nor onclose runs) and no session was registered, release the reserved
@@ -473,6 +486,7 @@ export async function serveHttp(
         });
         try {
           server = createServer();
+          sessionServers.set(transport, server);
         } catch (err) {
           // A throwing factory must not leak the reserved slot or the transport.
           void transport.close().catch(() => {});
