@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "description": "Shared toolkit for personal-knowledge agent plugins: pluggable LLM/embedding providers, a local-first semantic index, and an MCP server bridge.",
   "type": "module",
-  "packageManager": "pnpm@11.13.1",
+  "packageManager": "pnpm@11.20.0",
   "engines": {
     "node": "^20.0.0 || ^22.0.0 || >=24.0.0"
   },
