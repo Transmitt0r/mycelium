@@ -13,9 +13,9 @@ export async function serveStdio(server: McpServer): Promise<void> {
 }
 
 export interface ServeHttpAuth {
-  /** Require `Authorization: Bearer *** on every request. */
+  /** Require `Authorization: Bearer <token>` on every request. */
   bearerToken?: string;
-  /** Require `Authorization: Basic ***"username:password")>` on every request. */
+  /** Require `Authorization: Basic <base64("username:password")>` on every request. */
   basic?: { username: string; password: string };
 }
 
@@ -282,9 +282,10 @@ export async function serveHttp(
         }
         // Stateless Streamable HTTP is POST-only: there is no session to DELETE
         // and no long-lived SSE stream to GET, so every other verb is rejected.
-        // (The spec revision is POST-only in stateless mode.)
+        // (The spec revision is POST-only in stateless mode.) RFC 9110 requires
+        // an `Allow` header on 405 responses.
         if (req.method !== "POST") {
-          res.writeHead(405).end();
+          res.writeHead(405, { Allow: "POST" }).end();
           return;
         }
 

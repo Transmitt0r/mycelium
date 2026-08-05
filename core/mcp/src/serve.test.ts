@@ -374,13 +374,80 @@ describe("serveHttp stateless multi-client / reconnect", () => {
       },
       body: "this is not json",
     });
-    // Not 503 (no session cap anymore) — the request was handled as an error.
-    expect(bad.status).not.toBe(503);
+    // Unparseable JSON — the stateless transport answers 400 (Parse error), not
+    // a session-cap 503 (there is no session cap anymore).
+    expect(bad.status).toBe(400);
 
     // The endpoint still serves a real client right after.
     const client = await connectClient(handle.port);
     expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
     await client.close();
+  });
+});
+
+describe("serveHttp stateless spec invariants", () => {
+  test("responses carry no Mcp-Session-Id header (no server session state)", async () => {
+    const handle = await serveHttp(makeServer, { port: 0 });
+    handles.push(handle);
+
+    const response = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "http-test-client", version: "0.0.0" },
+        },
+      }),
+    });
+    expect(response.headers.get("mcp-session-id")).toBeNull();
+  });
+
+  test("a client-sent Mcp-Session-Id is ignored, not treated as a session (no 404)", async () => {
+    // The exact opposite of the old stateful 404 test: in stateless mode there is
+    // no session registry, so a bogus session-id is simply absent state and must
+    // not be rejected — the request is served normally.
+    const handle = await serveHttp(makeServer, { port: 0 });
+    handles.push(handle);
+
+    const client = new Client({ name: "http-test-client", version: "0.0.0" });
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${handle.port}/mcp`),
+      { requestInit: { headers: { "mcp-session-id": "bogus-session" } } },
+    );
+    await client.connect(transport);
+
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toEqual(["echo"]);
+
+    const result = await client.callTool({
+      name: "echo",
+      arguments: { text: "no session needed" },
+    });
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toBe("no session needed");
+
+    await client.close();
+  });
+
+  test("405 responses advertise the allowed methods via the Allow header", async () => {
+    const handle = await serveHttp(makeServer, { port: 0 });
+    handles.push(handle);
+
+    const get = await fetch(`http://127.0.0.1:${handle.port}/mcp`);
+    expect(get.status).toBe(405);
+    expect(get.headers.get("allow")).toBe("POST");
+
+    const del = await fetch(`http://127.0.0.1:${handle.port}/mcp`, { method: "DELETE" });
+    expect(del.status).toBe(405);
+    expect(del.headers.get("allow")).toBe("POST");
   });
 });
 

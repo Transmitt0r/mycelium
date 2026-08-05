@@ -17,6 +17,7 @@ Lift core/mcp onto the official high-level `McpServer` + stateless Streamable HT
   TypeBox JSON Schema in `BridgeableTool.parameters` — and tool annotations — pass
   through byte-for-byte unchanged; `registerTool` is Zod-only and would re-serialize
   the schema.
-- The SDK dependency is pinned to `1.30.0` (the version whose
-  `StreamableHTTPServerTransport` supports stateless mode via
-  `sessionIdGenerator: undefined`).
+- The lift relies on the SDK's stateless support, available since
+  `@modelcontextprotocol/sdk` `^1.30.0` (the existing dependency — resolved to
+  `1.30.0` in the lockfile, whose `StreamableHTTPServerTransport` supports
+  stateless mode via `sessionIdGenerator: undefined`).

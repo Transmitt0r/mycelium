@@ -7,8 +7,9 @@ Tool definitions shaped `{ name, description, parameters: JSONSchema, execute() 
 OpenClaw's `AnyAgentTool`, since TypeBox schemas already compile to plain JSON Schema) are
 structurally close to MCP's `Tool` type already. This package is the thin, mechanical adapter
 between the two — not a reimplementation of either. It builds on the official
-`@modelcontextprotocol/sdk`'s high-level `McpServer` (pinned to `1.30.0`) and its stateless
-`StreamableHTTPServerTransport`.
+`@modelcontextprotocol/sdk`'s high-level `McpServer` and its stateless
+`StreamableHTTPServerTransport` (`sessionIdGenerator: undefined`), both available since
+`@modelcontextprotocol/sdk` `^1.30.0`.
 
 ## Usage
 
