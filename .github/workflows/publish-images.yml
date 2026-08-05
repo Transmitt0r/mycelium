@@ -20,9 +20,6 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Drop the non-matching matrix row before it starts: a pushed tag only
-    # names one app, so a leaky guard in a shell step is unnecessary.
-    if: startsWith(github.ref_name, matrix.package)
     strategy:
       # Each app releases on its own tag; one must not block the other.
       fail-fast: false
@@ -37,10 +34,28 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # A pushed tag only names one app; skip this matrix row if it belongs
+      # to the other one. github.ref_name arrives via env (never interpolated
+      # into the shell body) to avoid script injection from tag names; the
+      # matrix.* values are workflow-controlled and safe to inline.
+      - name: Check tag belongs to this app
+        id: appcheck
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          PREFIX="${{ matrix.package }}-"
+          if [[ "$REF_NAME" == "$PREFIX"* ]]; then
+            echo "match=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "match=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Docker Buildx
+        if: steps.appcheck.outputs.match == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to GHCR
+        if: steps.appcheck.outputs.match == 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -54,6 +69,7 @@ jobs:
       # only added for stable (non-prerelease) versions so a tag like
       # v2.0.0-rc.1 never overwrites the stable latest.
       - name: Compute image tags
+        if: steps.appcheck.outputs.match == 'true'
         id: meta
         env:
           REF_NAME: ${{ github.ref_name }}
@@ -73,6 +89,7 @@ jobs:
       # Context is the repo root, not the app directory: the image needs its
       # @transmitt0r/mycelium-* workspace siblings (see both Dockerfiles).
       - name: Build and push
+        if: steps.appcheck.outputs.match == 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
