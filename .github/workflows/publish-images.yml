@@ -1,0 +1,92 @@
+name: Publish Docker Images to GHCR
+
+# Build the standalone MCP-server images for apps/trilium + apps/paperless-ngx
+# and push them to ghcr.io so deployments (e.g. Komodo) can pull ready-made
+# images instead of building from source. Fires on the per-app release tags
+# that release-apps.yml's semantic-release-monorepo creates
+# (e.g. @transmitt0r/openclaw-plugin-trilium-v1.1.0). ci.yml's docker-build
+# job stays build-only (no registry creds on PRs); this is the publish path.
+
+on:
+  push:
+    tags:
+      - '@transmitt0r/openclaw-plugin-trilium-v*'
+      - '@transmitt0r/openclaw-plugin-paperless-ngx-v*'
+
+permissions:
+  contents: read
+  packages: write # to push images to GHCR
+
+env:
+  REGISTRY: ghcr.io
+  REGISTRY_IMAGE_BASE: ghcr.io/${{ github.repository }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      # Each app releases on its own tag; one must not block the other.
+      fail-fast: false
+      matrix:
+        include:
+          - app: trilium
+            package: '@transmitt0r/openclaw-plugin-trilium'
+            image: mycelium-trilium-mcp
+          - app: paperless-ngx
+            package: '@transmitt0r/openclaw-plugin-paperless-ngx'
+            image: mycelium-paperless-ngx-mcp
+    steps:
+      - uses: actions/checkout@v7
+
+      # The pushed tag only names one app; skip this matrix row if it
+      # belongs to the other one.
+      - name: Check tag belongs to this app
+        id: appcheck
+        run: |
+          TAG="${{ github.ref_name }}"
+          PREFIX="${{ matrix.package }}-"
+          if [[ "$TAG" == "$PREFIX"* ]]; then
+            echo "match=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "match=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.appcheck.outputs.match == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: steps.appcheck.outputs.match == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        if: steps.appcheck.outputs.match == 'true'
+        id: meta
+        run: |
+          # Strip the per-app package prefix to get "v1.1.0", then derive
+          # the version tags and a floating "latest" for convenience.
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#${{ matrix.package }}-}"
+          IMAGE="${{ env.REGISTRY_IMAGE_BASE }}/${{ matrix.image }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "tags=$IMAGE:${VERSION},$IMAGE:${VERSION#v},$IMAGE:latest" >> "$GITHUB_OUTPUT"
+
+      # Context is the repo root, not the app directory: the image needs its
+      # @transmitt0r/mycelium-* workspace siblings (see both Dockerfiles).
+      - name: Build and push
+        if: steps.appcheck.outputs.match == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
