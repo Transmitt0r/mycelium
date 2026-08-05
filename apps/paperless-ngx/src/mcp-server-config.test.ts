@@ -173,6 +173,45 @@ describe("readStandaloneConfig", () => {
     });
     expect(config.readOnly).toBe(true);
   });
+
+  it("parses PAPERLESS_SEMANTIC_SEARCH_ENABLED strictly, rejecting unrecognized values", () => {
+    expect(() =>
+      readStandaloneConfig({
+        PAPERLESS_BASE_URL: "https://paperless.example.com",
+        PAPERLESS_API_TOKEN: "t",
+        PAPERLESS_SEMANTIC_SEARCH_ENABLED: "yes",
+      }),
+    ).toThrow('PAPERLESS_SEMANTIC_SEARCH_ENABLED must be "true" or "false" (got "yes")');
+  });
+
+  it("treats an empty PAPERLESS_SEMANTIC_SEARCH_ENABLED as unset (Docker/k8s artifact)", () => {
+    const config = readStandaloneConfig({
+      PAPERLESS_BASE_URL: "https://paperless.example.com",
+      PAPERLESS_API_TOKEN: "t",
+      PAPERLESS_SEMANTIC_SEARCH_ENABLED: "",
+    });
+    expect(config.semanticSearch).toBeUndefined();
+  });
+
+  it("rejects a non-integer PAPERLESS_EMBEDDING_DIMENSIONS instead of producing NaN", () => {
+    expect(() =>
+      readStandaloneConfig({
+        PAPERLESS_BASE_URL: "https://paperless.example.com",
+        PAPERLESS_API_TOKEN: "t",
+        PAPERLESS_EMBEDDING_DIMENSIONS: "abc",
+      }),
+    ).toThrow('PAPERLESS_EMBEDDING_DIMENSIONS must be a positive integer (got "abc")');
+  });
+
+  it("rejects non-decimal PAPERLESS_EMBEDDING_DIMENSIONS (hex/exponential)", () => {
+    expect(() =>
+      readStandaloneConfig({
+        PAPERLESS_BASE_URL: "https://paperless.example.com",
+        PAPERLESS_API_TOKEN: "t",
+        PAPERLESS_EMBEDDING_DIMENSIONS: "1e3",
+      }),
+    ).toThrow('PAPERLESS_EMBEDDING_DIMENSIONS must be a positive integer (got "1e3")');
+  });
 });
 
 describe("readTransportConfig", () => {
@@ -180,8 +219,18 @@ describe("readTransportConfig", () => {
     expect(readTransportConfig({})).toEqual({ transport: "stdio" });
   });
 
-  it("defaults to stdio for any unrecognized MCP_TRANSPORT value", () => {
-    expect(readTransportConfig({ MCP_TRANSPORT: "websocket" })).toEqual({ transport: "stdio" });
+  it("accepts an explicit stdio value", () => {
+    expect(readTransportConfig({ MCP_TRANSPORT: "stdio" })).toEqual({ transport: "stdio" });
+  });
+
+  it("treats an empty MCP_TRANSPORT as unset (Docker/k8s artifact)", () => {
+    expect(readTransportConfig({ MCP_TRANSPORT: "" })).toEqual({ transport: "stdio" });
+  });
+
+  it("throws for an unrecognized MCP_TRANSPORT value instead of falling back to stdio", () => {
+    expect(() => readTransportConfig({ MCP_TRANSPORT: "websocket" })).toThrow(
+      'Unknown MCP_TRANSPORT value "websocket"',
+    );
   });
 
   it("switches to http with a default port of 3000", () => {
@@ -196,5 +245,31 @@ describe("readTransportConfig", () => {
     expect(
       readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "8080", MCP_HTTP_PATH: "/custom" }),
     ).toEqual({ transport: "http", port: 8080, path: "/custom" });
+  });
+
+  it("throws when MCP_PORT is not a valid integer", () => {
+    expect(() => readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "abc" })).toThrow(
+      "MCP_PORT must be an integer between 1 and 65535",
+    );
+    expect(() => readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "12.5" })).toThrow(
+      "MCP_PORT must be an integer between 1 and 65535",
+    );
+    expect(() => readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "70000" })).toThrow(
+      "MCP_PORT must be an integer between 1 and 65535",
+    );
+  });
+
+  it("rejects non-decimal MCP_PORT (hex/exponential)", () => {
+    expect(() => readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "0x1F90" })).toThrow(
+      "MCP_PORT must be an integer between 1 and 65535",
+    );
+  });
+
+  it("treats an empty MCP_PORT as the default 3000 (Docker/k8s artifact)", () => {
+    expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "" })).toEqual({
+      transport: "http",
+      port: 3000,
+      path: undefined,
+    });
   });
 });

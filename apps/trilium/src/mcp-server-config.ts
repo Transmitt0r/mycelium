@@ -29,11 +29,58 @@ function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
   return value;
 }
 
+// Parses a strict boolean env flag: only the literal strings "true" and
+// "false" are accepted. An unset or empty variable yields undefined (empty
+// strings are an everyday Docker/k8s artifact and must stay inert, not
+// crash startup); any other non-empty value (e.g. "yes", "1", "TRUE") is a
+// misconfiguration and throws rather than being silently coerced -- a
+// typo'd flag must not quietly change behavior.
+function parseBoolEnv(env: NodeJS.ProcessEnv, name: string): boolean | undefined {
+  const raw = env[name];
+  if (raw === undefined || raw === "") return undefined;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`${name} must be "true" or "false" (got "${raw}")`);
+}
+
+// Parses a strict positive-integer env value. Only decimal digits are
+// accepted (Number("abc") would be NaN, "12.5" non-integer, "0x10"/"1e3"
+// exotic radixes -- all rejected so a malformed dimensions value can never
+// propagate NaN or a surprising number downstream). Unset/empty yields
+// undefined.
+function parsePositiveIntEnv(env: NodeJS.ProcessEnv, name: string): number | undefined {
+  const raw = env[name];
+  if (raw === undefined || raw === "") return undefined;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`${name} must be a positive integer (got "${raw}")`);
+  }
+  const parsed = Number(raw);
+  if (parsed <= 0 || !Number.isSafeInteger(parsed)) {
+    throw new Error(`${name} must be a positive integer (got "${raw}")`);
+  }
+  return parsed;
+}
+
+// Validates an MCP listen port: a decimal integer in the valid TCP range.
+function parsePortEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name];
+  if (raw === undefined || raw === "") return fallback;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`${name} must be an integer between 1 and 65535 (got "${raw}")`);
+  }
+  const parsed = Number(raw);
+  if (parsed < 1 || parsed > 65535) {
+    throw new Error(`${name} must be an integer between 1 and 65535 (got "${raw}")`);
+  }
+  return parsed;
+}
+
 // No SecretRef concept exists outside OpenClaw's config system -- an env
 // var is already either a plain string or unset, so embedding.apiKey is
 // read the same way baseUrl/model/etc. are.
 function readSemanticSearchConfig(env: NodeJS.ProcessEnv): SemanticSearchPluginConfig | undefined {
-  if (env.TRILIUM_SEMANTIC_SEARCH_ENABLED === "false") {
+  const enabled = parseBoolEnv(env, "TRILIUM_SEMANTIC_SEARCH_ENABLED");
+  if (enabled === false) {
     return { enabled: false };
   }
 
@@ -61,9 +108,7 @@ function readSemanticSearchConfig(env: NodeJS.ProcessEnv): SemanticSearchPluginC
           baseUrl: env.TRILIUM_EMBEDDING_BASE_URL,
           apiKey: env.TRILIUM_EMBEDDING_API_KEY,
           model: env.TRILIUM_EMBEDDING_MODEL,
-          dimensions: env.TRILIUM_EMBEDDING_DIMENSIONS
-            ? Number(env.TRILIUM_EMBEDDING_DIMENSIONS)
-            : undefined,
+          dimensions: parsePositiveIntEnv(env, "TRILIUM_EMBEDDING_DIMENSIONS"),
         }
       : undefined,
   };
@@ -94,12 +139,20 @@ function readReadOnlyFlag(env: NodeJS.ProcessEnv, name: string): boolean {
 }
 
 export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
-  if (env.MCP_TRANSPORT === "http") {
+  const transport = env.MCP_TRANSPORT;
+  if (transport === "http") {
     return {
       transport: "http",
-      port: env.MCP_PORT ? Number(env.MCP_PORT) : 3000,
+      port: parsePortEnv(env, "MCP_PORT", 3000),
       path: env.MCP_HTTP_PATH,
     };
+  }
+  // Fail closed on an unknown transport value instead of silently falling
+  // back to stdio -- a typo'd MCP_TRANSPORT must error loudly, not quietly
+  // switch the server's wire protocol. An unset or empty variable is the
+  // everyday default and keeps the stdio fallback.
+  if (transport !== undefined && transport !== "" && transport !== "stdio") {
+    throw new Error(`Unknown MCP_TRANSPORT value "${transport}" (expected "stdio" or "http")`);
   }
   return { transport: "stdio" };
 }
