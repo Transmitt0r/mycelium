@@ -368,6 +368,40 @@ describe("serveHttp multi-session", () => {
 
     await clientA.close();
   });
+
+  test("terminating a session explicitly (DELETE) releases its slot under the cap (reconnect)", async () => {
+    // Cap of 1: A fills the only slot; spec-conformant teardown (DELETE) must free
+    // that slot so a fresh session is admitted again. Catches slot-accounting drift.
+    // NB a bare client.close() only aborts the local stream and sends no DELETE, so
+    // it does NOT release the slot — that is the documented connectionless-HTTP
+    // limitation (no idle reaper), not a regression.
+    const handle = await serveHttp(makeServer, { port: 0, maxSessions: 1 });
+    handles.push(handle);
+
+    const clientA = new Client({ name: "http-test-client", version: "0.0.0" });
+    const transportA = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${handle.port}/mcp`),
+    );
+    await clientA.connect(transportA);
+    expect((await clientA.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+
+    // The client signals session end via DELETE; the server frees the slot.
+    await transportA.terminateSession();
+
+    // The freed slot must admit a brand-new session.
+    const clientB = await connectClient(handle.port);
+    expect((await clientB.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+    await clientB.close();
+  });
+
+  test("maxSessions must be a positive integer at startup (fail-closed)", async () => {
+    // NaN/zero/negative/fractional caps would silently disarm or invert the DoS
+    // guard, so they are rejected up front like other misconfigurations.
+    await expect(serveHttp(makeServer, { port: 0, maxSessions: NaN })).rejects.toThrow();
+    await expect(serveHttp(makeServer, { port: 0, maxSessions: 0 })).rejects.toThrow();
+    await expect(serveHttp(makeServer, { port: 0, maxSessions: -3 })).rejects.toThrow();
+    await expect(serveHttp(makeServer, { port: 0, maxSessions: 2.5 })).rejects.toThrow();
+  });
 });
 
 // Send a request with an arbitrary Host/Origin header (http.request allows

@@ -13,9 +13,9 @@ export async function serveStdio(server: Server): Promise<void> {
 }
 
 export interface ServeHttpAuth {
-  /** Require `Authorization: Bearer *** on every request. */
+  /** Require `Authorization: Bearer <token>` on every request. */
   bearerToken?: string;
-  /** Require `Authorization: Basic base64...rd)` on every request. */
+  /** Require `Authorization: Basic <base64("username:password")>` on every request. */
   basic?: { username: string; password: string };
 }
 
@@ -241,6 +241,12 @@ export async function serveHttp(
   const maxSessions = options.maxSessions ?? 100;
   validateAuth(options.auth);
   validateHostLists(options);
+  // Fail fast like the other options: a NaN/negative/fractional cap (e.g. from
+  // `Number(process.env...)`) would silently disarm the DoS guard, so reject it
+  // rather than let it weaken the limit at runtime.
+  if (!Number.isInteger(maxSessions) || maxSessions < 1) {
+    throw new Error("serveHttp: maxSessions must be a positive integer when provided");
+  }
   const transports = new Map<string, StreamableHTTPServerTransport>();
   // Synchronously-reserved session count. Unlike `transports.size` (which only
   // updates when an initialize completes, i.e. asynchronously), this is bumped
@@ -313,8 +319,14 @@ export async function serveHttp(
         },
       });
       // Releasing the reserved slot (and any registered session) is the transport's
-      // onclose hook — the single point every teardown path funnels through.
+      // onclose hook — the single point every teardown path funnels through. The
+      // SDK's close() is NOT idempotent (each call re-fires onclose), so guard the
+      // bookkeeping against a double-close (DELETE teardown + handle.close(), etc.)
+      // which would otherwise drift `sessions` negative and disarm the cap.
+      let released = false;
       transport.onclose = () => {
+        if (released) return;
+        released = true;
         sessions--;
         const id = transport.sessionId;
         if (id) transports.delete(id);
@@ -389,7 +401,9 @@ export async function serveHttp(
 function respondWithError(res: ServerResponse, onServerError: ((err: Error) => void) | undefined) {
   return (err: unknown) => {
     if (!res.headersSent) res.writeHead(500);
-    res.end(INTERNAL_ERROR);
+    // An SSE stream may already be finished when a handler rejects; end() on a
+    // finished response throws ERR_STREAM_ALREADY_FINISHED, so only end if open.
+    if (!res.writableEnded) res.end(INTERNAL_ERROR);
     onServerError?.(err instanceof Error ? err : new Error(String(err)));
   };
 }
