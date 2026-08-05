@@ -268,6 +268,27 @@ describe("readTransportConfig", () => {
     });
   });
 
+  it("reads a comma-separated MCP_ALLOWED_HOSTS allowlist (trimmed, de-duplicated)", () => {
+    expect(
+      readTransportConfig({
+        MCP_TRANSPORT: "http",
+        MCP_ALLOWED_HOSTS: "mcp.grotz.io, 10.0.0.5, mcp.grotz.io",
+      }),
+    ).toMatchObject({ allowedHosts: ["mcp.grotz.io", "10.0.0.5"] });
+  });
+
+  it("treats an empty or whitespace-only MCP_ALLOWED_HOSTS as unset (loopback-only)", () => {
+    expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "" })).toEqual({
+      transport: "http",
+      port: 3000,
+      path: undefined,
+      host: "127.0.0.1",
+    });
+    expect(
+      readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "  ,  " }),
+    ).toMatchObject({});
+  });
+
   it("throws when MCP_PORT is not a valid integer", () => {
     expect(() => readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "abc" })).toThrow(
       "MCP_PORT must be an integer between 1 and 65535",

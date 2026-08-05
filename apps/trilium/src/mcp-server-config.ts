@@ -10,7 +10,13 @@ export type StandaloneConfig = {
 
 export type TransportConfig =
   | { transport: "stdio" }
-  | { transport: "http"; port: number; path?: string; host: string };
+  | {
+      transport: "http";
+      port: number;
+      path?: string;
+      host: string;
+      allowedHosts?: string[];
+    };
 
 // Docker-secret convention: <NAME>_FILE points at a file (typically a
 // bind-mounted secret) whose trimmed contents are the value -- trimming drops
@@ -73,6 +79,24 @@ function parsePortEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): n
     throw new Error(`${name} must be an integer between 1 and 65535 (got "${raw}")`);
   }
   return parsed;
+}
+
+// Parses a comma-separated Host allowlist (DNS-rebinding protection). Unset or
+// whitespace-only yields undefined (loopback-only default); otherwise returns a
+// trimmed, de-duplicated array of non-empty hostnames, or undefined when the
+// value ends up empty after trimming.
+function parseHostList(env: NodeJS.ProcessEnv, name: string): string[] | undefined {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const hosts = Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((h) => h.trim())
+        .filter((h) => h.length > 0),
+    ),
+  );
+  return hosts.length > 0 ? hosts : undefined;
 }
 
 // No SecretRef concept exists outside OpenClaw's config system -- an env
@@ -150,6 +174,10 @@ export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
       // explicit opt-in via MCP_BIND_HOST -- an MCP server executes arbitrary
       // configured tools, so reaching it must never be an accident.
       host: env.MCP_BIND_HOST || "127.0.0.1",
+      // Reverse proxies (e.g. Caddy) send the public hostname in the Host
+      // header, which core/mcp's DNS-rebinding protection rejects unless the
+      // hostname is on the allowlist. Required for any non-loopback exposure.
+      allowedHosts: parseHostList(env, "MCP_ALLOWED_HOSTS"),
     };
   }
   // Fail closed on an unknown transport value instead of silently falling

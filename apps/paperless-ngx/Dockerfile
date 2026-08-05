@@ -13,10 +13,13 @@
 #     paperless-ngx-mcp
 #
 # Or Streamable HTTP (loopback-only by default; expose on all interfaces via
-# MCP_BIND_HOST=0.0.0.0, e.g. in front of a reverse proxy on a bridged network):
+# MCP_BIND_HOST=0.0.0.0, e.g. behind a reverse proxy on a bridged network). The
+# app has NO built-in auth -- only expose non-loopback behind an authenticated
+# proxy (Caddy Basic auth), list the proxy's public hostname in
+# MCP_ALLOWED_HOSTS (DNS-rebinding protection), and prefer PAPERLESS_READ_ONLY:
 #
 #   docker run --rm -p 3000:3000 -e MCP_TRANSPORT=http \
-#     -e MCP_BIND_HOST=0.0.0.0 \
+#     -e MCP_BIND_HOST=0.0.0.0 -e MCP_ALLOWED_HOSTS=mcp.example.com \
 #     -e PAPERLESS_BASE_URL=... -e PAPERLESS_API_TOKEN=... \
 #     paperless-ngx-mcp
 #
