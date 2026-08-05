@@ -237,14 +237,94 @@ describe("readTransportConfig", () => {
     expect(readTransportConfig({ MCP_TRANSPORT: "http" })).toEqual({
       transport: "http",
       port: 3000,
-      path: undefined,
+      host: "127.0.0.1",
     });
   });
 
-  it("reads a custom port and path for http", () => {
+  it("reads a custom port for http", () => {
+    expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "8080" })).toEqual({
+      transport: "http",
+      port: 8080,
+      host: "127.0.0.1",
+    });
+  });
+
+  it("defaults the http bind host to the loopback interface", () => {
+    expect(readTransportConfig({ MCP_TRANSPORT: "http" })).toMatchObject({ host: "127.0.0.1" });
+  });
+
+  it("binds to an explicit MCP_HOST when set (with a host allowlist for non-loopback)", () => {
     expect(
-      readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "8080", MCP_HTTP_PATH: "/custom" }),
-    ).toEqual({ transport: "http", port: 8080, path: "/custom" });
+      readTransportConfig({
+        MCP_TRANSPORT: "http",
+        MCP_HOST: "0.0.0.0",
+        MCP_ALLOWED_HOSTS: "mcp.grotz.io",
+      }),
+    ).toMatchObject({ host: "0.0.0.0", allowedHosts: ["mcp.grotz.io"] });
+    // An empty value stays inert (Docker/k8s artifact) and keeps loopback.
+    expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_HOST: "" })).toEqual({
+      transport: "http",
+      port: 3000,
+      host: "127.0.0.1",
+    });
+  });
+
+  it("refuses a non-loopback bind with no MCP_ALLOWED_HOSTS (fail-closed, no app auth)", () => {
+    expect(() => readTransportConfig({ MCP_TRANSPORT: "http", MCP_HOST: "0.0.0.0" })).toThrow(
+      "MCP_HOST is bound to non-loopback interface",
+    );
+  });
+
+  it("rejects invalid MCP_ALLOWED_HOSTS entries (scheme, port, whitespace)", () => {
+    expect(() =>
+      readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "mcp.grotz.io:8443" }),
+    ).toThrow("MCP_ALLOWED_HOSTS contains an invalid host entry");
+    expect(() =>
+      readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "https://mcp.grotz.io" }),
+    ).toThrow("MCP_ALLOWED_HOSTS contains an invalid host entry");
+    expect(() =>
+      readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "mcp.grotz.io/path" }),
+    ).toThrow("MCP_ALLOWED_HOSTS contains an invalid host entry");
+  });
+
+  it("trims surrounding whitespace from MCP_HOST", () => {
+    expect(
+      readTransportConfig({
+        MCP_TRANSPORT: "http",
+        MCP_HOST: " 0.0.0.0 ",
+        MCP_ALLOWED_HOSTS: "mcp.grotz.io",
+      }),
+    ).toMatchObject({ host: "0.0.0.0" });
+  });
+
+  it("rejects an MCP_HOST containing whitespace (fail-closed like MCP_PORT)", () => {
+    expect(() => readTransportConfig({ MCP_TRANSPORT: "http", MCP_HOST: "0.0.0.0 3000" })).toThrow(
+      "MCP_HOST must be a host/IP without whitespace",
+    );
+  });
+
+  it("reads a comma-separated MCP_ALLOWED_HOSTS allowlist (trimmed, de-duplicated)", () => {
+    expect(
+      readTransportConfig({
+        MCP_TRANSPORT: "http",
+        MCP_ALLOWED_HOSTS: "mcp.grotz.io, 10.0.0.5, mcp.grotz.io",
+      }),
+    ).toMatchObject({ allowedHosts: ["mcp.grotz.io", "10.0.0.5"] });
+  });
+
+  it("treats an empty or whitespace-only MCP_ALLOWED_HOSTS as unset (loopback-only)", () => {
+    expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "" })).toEqual({
+      transport: "http",
+      port: 3000,
+      host: "127.0.0.1",
+    });
+    // Whitespace-only (no real hostnames) is likewise treated as unset -- the
+    // resulting object must carry no allowedHosts at all, not ["  "].
+    expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_ALLOWED_HOSTS: "  ,  " })).toEqual({
+      transport: "http",
+      port: 3000,
+      host: "127.0.0.1",
+    });
   });
 
   it("throws when MCP_PORT is not a valid integer", () => {
@@ -269,7 +349,7 @@ describe("readTransportConfig", () => {
     expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_PORT: "" })).toEqual({
       transport: "http",
       port: 3000,
-      path: undefined,
+      host: "127.0.0.1",
     });
   });
 });
