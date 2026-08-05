@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer, type IncomingMessage } from "node:http";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -17,7 +17,7 @@ export interface ServeHttpAuth {
 
 export interface ServeHttpOptions {
   port: number;
-  /** Local address/interface to bind. Omit to bind all interfaces (Node default). */
+  /** Local address/interface to bind. Defaults to loopback when no `auth` is set, otherwise all interfaces. */
   host?: string;
   path?: string;
   /** When provided, requests must carry matching credentials (Bearer or Basic). */
@@ -29,30 +29,66 @@ export interface HttpServerHandle {
   close(): Promise<void>;
 }
 
+// Constant-time comparison for secrets. Both sides are hashed first so
+// `timingSafeEqual` never sees a length mismatch (a length oracle on its own),
+// and the comparison itself runs in constant time regardless of prefix.
+function constantTimeEqual(a: string, b: string): boolean {
+  const left = createHash("sha256").update(a).digest();
+  const right = createHash("sha256").update(b).digest();
+  return timingSafeEqual(left, right);
+}
+
+function parseCredentials(header: string): { scheme: string; credential: string } | undefined {
+  const space = header.indexOf(" ");
+  if (space === -1) return undefined;
+  return {
+    scheme: header.slice(0, space).toLowerCase(),
+    credential: header.slice(space + 1).trim(),
+  };
+}
+
 function requestAuthorized(auth: ServeHttpAuth | undefined, req: IncomingMessage): boolean {
   if (!auth) return true;
 
   const header = req.headers.authorization;
   if (!header) return false;
 
-  const space = header.indexOf(" ");
-  const scheme = space === -1 ? "" : header.slice(0, space).toLowerCase();
-  const credential = space === -1 ? "" : header.slice(space + 1).trim();
+  const parsed = parseCredentials(header);
+  if (!parsed) return false;
 
-  if (auth.bearerToken && scheme === "bearer" && credential === auth.bearerToken) {
-    return true;
+  if (auth.bearerToken && parsed.scheme === "bearer") {
+    return constantTimeEqual(parsed.credential, auth.bearerToken);
   }
 
-  if (auth.basic) {
+  if (auth.basic && parsed.scheme === "basic") {
     const expected = Buffer.from(`${auth.basic.username}:${auth.basic.password}`).toString(
       "base64",
     );
-    if (scheme === "basic" && credential === expected) {
-      return true;
-    }
+    return constantTimeEqual(parsed.credential, expected);
   }
 
   return false;
+}
+
+// Advertise only the auth challenges that are actually configured, so clients
+// aren't invited to send Basic credentials in clear text to a Bearer-only server
+// (or vice versa).
+function wwwAuthenticate(auth: ServeHttpAuth): string {
+  const challenges: string[] = [];
+  if (auth.bearerToken) challenges.push('Bearer realm="mcp"');
+  if (auth.basic) challenges.push('Basic realm="mcp"');
+  return challenges.join(", ");
+}
+
+function validateAuth(auth: ServeHttpAuth | undefined): void {
+  if (!auth) return;
+  const hasBearer = typeof auth.bearerToken === "string" && auth.bearerToken.length > 0;
+  const hasBasic = !!auth.basic && auth.basic.username.length > 0 && auth.basic.password.length > 0;
+  if (!hasBearer && !hasBasic) {
+    throw new Error(
+      "serveHttp: auth requires at least one of bearerToken or basic with non-empty credentials",
+    );
+  }
 }
 
 export async function serveHttp(
@@ -60,17 +96,27 @@ export async function serveHttp(
   options: ServeHttpOptions,
 ): Promise<HttpServerHandle> {
   const path = options.path ?? "/mcp";
+  validateAuth(options.auth);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
   await server.connect(transport);
 
+  // An unauthenticated server must not silently listen on every interface: MCP
+  // servers execute arbitrary configured tools. When no auth is configured,
+  // default to the loopback interface unless an explicit host is given;
+  // authenticated servers default to all interfaces so they can be exposed
+  // behind a reverse proxy.
+  const host = options.host ?? (options.auth ? undefined : "127.0.0.1");
+
   const httpServer = createHttpServer((req, res) => {
+    // Authorize before the path check so unauthenticated clients can't tell a
+    // valid MCP path (401) from a bogus one (404) — no server-path enumeration.
+    if (options.auth && !requestAuthorized(options.auth, req)) {
+      res.writeHead(401, { "WWW-Authenticate": wwwAuthenticate(options.auth) }).end();
+      return;
+    }
     const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname !== path) {
       res.writeHead(404).end();
-      return;
-    }
-    if (!requestAuthorized(options.auth, req)) {
-      res.writeHead(401, { "WWW-Authenticate": 'Bearer realm="mcp", Basic realm="mcp"' }).end();
       return;
     }
     transport.handleRequest(req, res).catch((err: unknown) => {
@@ -79,7 +125,7 @@ export async function serveHttp(
     });
   });
 
-  await new Promise<void>((resolve) => httpServer.listen(options.port, options.host, resolve));
+  await new Promise<void>((resolve) => httpServer.listen(options.port, host, resolve));
   const address = httpServer.address();
   const actualPort = address && typeof address === "object" ? address.port : options.port;
 

@@ -21,7 +21,7 @@ await serveStdio(server);
 // or Streamable HTTP — for anything else
 const handle = await serveHttp(server, {
   port: 3000,
-  // host: "127.0.0.1",              // bind a specific interface (default: all)
+  // host: "127.0.0.1",              // bind a specific interface (default: loopback)
   // path: "/mcp",                   // request path (default: /mcp)
   // auth: { bearerToken: "secret" } // or { basic: { username, password } }
 });
@@ -29,12 +29,17 @@ const handle = await serveHttp(server, {
 ```
 
 `serveHttp` optionally enforces an `Authorization` check before handling any request:
-- `auth.bearerToken` requires `Authorization: Bearer <token>`.
-- `auth.basic` requires `Authorization: Basic base64(username:password)`.
-- `host` controls the local interface the listener binds (defaults to all interfaces).
+- `auth.bearerToken` requires `Authorization: Bearer <token>` (compared in constant time).
+- `auth.basic` requires `Authorization: Basic base64(username:password)` (compared in constant time).
+- `host` controls the local interface the listener binds.
 
-Requests that fail the check get `401` with a `WWW-Authenticate` challenge; unauthenticated
-servers (no `auth` option) behave exactly as before.
+Requests that fail the check get `401` with a `WWW-Authenticate` challenge advertising only the
+configured schemes (Bearer and/or Basic). The auth check runs before any path handling, so an
+unauthenticated client can't probe which MCP paths exist.
+
+Bind-address defaulting is fail-safe: an unauthenticated server (no `auth`, no `host`) binds
+**127.0.0.1 (loopback) only** — never every interface. Set `auth` (and optionally `host`) when
+you intend to expose it, e.g. behind a reverse proxy.
 
 `myTools` is an array of `BridgeableTool` — the same `{name, description, parameters, execute}`
 shape OpenClaw's `AnyAgentTool` already has, passed in unmodified.
