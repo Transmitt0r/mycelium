@@ -32,19 +32,25 @@ const handle = await serveHttp(server, {
 - `auth.bearerToken` requires `Authorization: Bearer <token>` (compared in constant time).
 - `auth.basic` requires `Authorization: Basic base64(username:password)` (compared in constant time, after decoding).
 - `host` controls the local interface the listener binds.
-- `allowedHosts` sets an explicit `Host` allowlist for DNS-rebinding protection.
+- `allowedHosts` sets an explicit `Host` allowlist (DNS-rebinding protection).
+- `allowedOrigins` sets an explicit `Origin` allowlist for browser-based clients.
+- `onServerError` is an optional observer for server errors after a successful bind.
 
 Requests that fail the check get `401` with a `WWW-Authenticate` challenge advertising only the
 configured schemes (Bearer and/or Basic). The auth check runs before any path handling, so an
 unauthenticated client can't probe which MCP paths exist. The returned handle exposes the bound
-port and interface (`handle.port`, `handle.host`).
+port and interface (`handle.port`, `handle.host`). Internal errors are never echoed back to
+clients (a generic `500` body is returned instead).
 
 Bind-address defaulting is fail-safe: every server binds **127.0.0.1 (loopback) only** unless you
 pass an explicit `host`. MCP servers execute arbitrary configured tools, so exposing one is an
 explicit choice — pair an explicit `host` (e.g. `"0.0.0.0"`) with `auth`, and list the hostname(s)
-your clients/proxy will use in `allowedHosts`. DNS-rebinding protection is always on: without
+your clients/proxy will use in `allowedHosts`. Host-header validation is always on: without
 `allowedHosts` only loopback `Host` headers are accepted (an empty `allowedHosts` accepts none),
-so a server reached via a proxied/LAN hostname must declare that hostname explicitly.
+so a server reached via a proxied/LAN hostname must declare that hostname explicitly. Origin
+validation is opt-in via `allowedOrigins` (recommended for browser-facing deployments): when set,
+requests carrying an `Origin` header must match, while non-browser requests without one are
+unaffected.
 
 `myTools` is an array of `BridgeableTool` — the same `{name, description, parameters, execute}`
 shape OpenClaw's `AnyAgentTool` already has, passed in unmodified.

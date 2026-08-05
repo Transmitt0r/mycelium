@@ -134,6 +134,8 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
         authorization: `Bearer ${Buffer.from("user:pass").toString("base64")}`,
       }),
     ).toBe(401);
+    // Credentials that aren't valid base64 are rejected, not treated as a match.
+    expect(await statusAt(handle, { authorization: "Basic !!!notbase64!!!" })).toBe(401);
   });
 
   test("malformed auth configuration is rejected at startup", async () => {
@@ -164,6 +166,24 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
     // RFC 7617: a username containing ":" is rejected at startup.
     await expect(
       serveHttp(maketool(), { port: 0, auth: { basic: { username: "a:b", password: "c" } } }),
+    ).rejects.toThrow();
+    // A null auth object must not silently disable the gate.
+    await expect(
+      serveHttp(maketool(), { port: 0, auth: null as unknown as ServeHttpAuth }),
+    ).rejects.toThrow();
+    await expect(
+      serveHttp(maketool(), {
+        port: 0,
+        auth: { basic: null } as unknown as ServeHttpAuth,
+      }),
+    ).rejects.toThrow();
+    // An empty allowedHosts/allowedOrigins entry or a non-array is rejected.
+    await expect(serveHttp(maketool(), { port: 0, allowedHosts: [""] })).rejects.toThrow();
+    await expect(
+      serveHttp(maketool(), {
+        port: 0,
+        allowedOrigins: "https://x.example" as unknown as string[],
+      }),
     ).rejects.toThrow();
   });
 
@@ -250,6 +270,47 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
     expect(await rawStatusAt(handle.port, "mcp.example.com")).toBe(400);
   });
 
+  test("allowedHosts matching is case-insensitive", async () => {
+    const handle = await serveHttp(
+      createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
+      { port: 0, allowedHosts: ["MCP.Example.com"] },
+    );
+    handles.push(handle);
+
+    expect(await rawStatusAt(handle.port, "mcp.example.com")).not.toBe(400);
+    expect(await rawStatusAt(handle.port, "other.example")).toBe(400);
+  });
+
+  test("allowedOrigins validates browser Origin headers and leaves non-browser requests alone", async () => {
+    const handle = await serveHttp(
+      createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
+      { port: 0, allowedOrigins: ["https://app.example"] },
+    );
+    handles.push(handle);
+
+    // A matching origin passes; a different origin is rejected.
+    expect(await rawStatusAt(handle.port, "127.0.0.1", undefined, "https://app.example")).not.toBe(
+      400,
+    );
+    expect(await rawStatusAt(handle.port, "127.0.0.1", undefined, "https://evil.example")).toBe(
+      400,
+    );
+    // Requests without an Origin header (non-browser, e.g. via a proxy) are unaffected.
+    expect(await rawStatusAt(handle.port, "127.0.0.1")).not.toBe(400);
+  });
+
+  test("an empty allowedOrigins rejects every browser request (fail-closed)", async () => {
+    const handle = await serveHttp(
+      createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
+      { port: 0, allowedOrigins: [] },
+    );
+    handles.push(handle);
+
+    expect(await rawStatusAt(handle.port, "127.0.0.1", undefined, "https://app.example")).toBe(400);
+    // Non-browser (no Origin) requests still work.
+    expect(await rawStatusAt(handle.port, "127.0.0.1")).not.toBe(400);
+  });
+
   test("a bind failure (port already in use) rejects serveHttp instead of hanging", async () => {
     const first = await serveHttp(
       createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" }),
@@ -265,12 +326,18 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
   });
 });
 
-// Send a request with an arbitrary Host header (http.request allows overriding
-// Host, unlike fetch which forbids it).
-function rawStatusAt(port: number, hostHeader: string, authorization?: string): Promise<number> {
+// Send a request with an arbitrary Host/Origin header (http.request allows
+// overriding these, unlike fetch which forbids Host).
+function rawStatusAt(
+  port: number,
+  hostHeader: string,
+  authorization?: string,
+  origin?: string,
+): Promise<number> {
   return new Promise((resolve, reject) => {
     const headers: Record<string, string> = { host: hostHeader };
     if (authorization !== undefined) headers.authorization = authorization;
+    if (origin !== undefined) headers.origin = origin;
     const req = httpRequest(
       { host: "127.0.0.1", port, path: "/mcp", method: "GET", headers },
       (res) => {

@@ -23,12 +23,21 @@ export interface ServeHttpOptions {
   /** When provided, requests must carry matching credentials (Bearer or Basic). */
   auth?: ServeHttpAuth;
   /**
-   * DNS-rebinding protection: allowlist of accepted `Host` header values
-   * (port-agnostic). Always enforced; when unset only loopback hostnames are
-   * accepted. Exposing a server (proxy/LAN) requires listing the hostname(s)
-   * clients will use here. An empty array rejects every Host.
+   * Host-header allowlist (DNS-rebinding protection), compared case-insensitively
+   * and port-agnostically. Always enforced; when unset only loopback hostnames are
+   * accepted. An empty array rejects every Host. Exposing a server (proxy/LAN)
+   * requires listing the hostname(s) clients will use.
    */
   allowedHosts?: string[];
+  /**
+   * Origin-header allowlist, compared case-insensitively. When set, requests that
+   * carry an `Origin` header (i.e. browser-based clients) are rejected unless the
+   * origin matches. Requests without an `Origin` (non-browser, e.g. via a reverse
+   * proxy) are unaffected. An empty array rejects every browser request.
+   */
+  allowedOrigins?: string[];
+  /** Optional handler for server errors after a successful bind (e.g. to log). */
+  onServerError?: (err: Error) => void;
 }
 
 export interface HttpServerHandle {
@@ -39,6 +48,10 @@ export interface HttpServerHandle {
 }
 
 const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "::1"];
+
+// Generic, secret-free body used for any internal error — never echo internal
+// exception messages back to (possibly unauthenticated) clients.
+const INTERNAL_ERROR = "Internal Server Error";
 
 // Constant-time comparison for secrets. Both sides are hashed first so
 // `timingSafeEqual` never sees a length mismatch (a length oracle on its own),
@@ -70,8 +83,9 @@ function basicCredentials(auth: ServeHttpAuth): string | undefined {
 }
 
 // Decode a Basic credential, returning undefined when it isn't valid base64.
-// Re-encoding and comparing normalises away padding variants so different
-// encodings of the same value are accepted, while garbage is rejected.
+// `Buffer.from(x, "base64")` ignores out-of-alphabet characters, so the decoded
+// value is re-encoded and compared: any such tolerance changes the canonical
+// encoding and marks the credential invalid.
 function decodeBasic(credential: string): string | undefined {
   const normalized = credential.replace(/=+$/, "");
   const decoded = Buffer.from(normalized, "base64");
@@ -118,15 +132,18 @@ function wwwAuthenticate(auth: ServeHttpAuth): string {
 // Fail fast on partial, empty, or mistyped auth config rather than letting it
 // silently weaken the gate or crash the request handler later.
 function validateAuth(auth: ServeHttpAuth | undefined): void {
-  if (!auth) return;
-  if (auth.bearerToken !== undefined) {
+  if (auth === undefined) return;
+  if (auth === null || typeof auth !== "object") {
+    throw new Error("serveHttp: auth must be an object when provided");
+  }
+  if (auth.bearerToken != null) {
     if (typeof auth.bearerToken !== "string" || auth.bearerToken.length === 0) {
       throw new Error("serveHttp: auth.bearerToken must be a non-empty string when provided");
     }
   }
-  if (auth.basic !== undefined) {
+  if (auth.basic != null) {
     if (
-      typeof auth.basic.username !== "string" ||
+      typeof auth.basic?.username !== "string" ||
       auth.basic.username.length === 0 ||
       // RFC 7617: a username must not contain ":" (it would be
       // indistinguishable from the username/password separator).
@@ -139,6 +156,19 @@ function validateAuth(auth: ServeHttpAuth | undefined): void {
   }
   if (!auth.bearerToken && !auth.basic) {
     throw new Error("serveHttp: auth requires at least one of bearerToken or basic");
+  }
+}
+
+function validateHostLists(options: ServeHttpOptions): void {
+  for (const field of ["allowedHosts", "allowedOrigins"] as const) {
+    const list = options[field];
+    if (list === undefined) continue;
+    if (
+      !Array.isArray(list) ||
+      list.some((item) => typeof item !== "string" || item.length === 0)
+    ) {
+      throw new Error(`serveHttp: ${field} must be an array of non-empty strings`);
+    }
   }
 }
 
@@ -162,19 +192,29 @@ function hostName(hostHeader: string | undefined): string | undefined {
   return value;
 }
 
-function hostAllowed(options: ServeHttpOptions, hostHeader: string | undefined): boolean {
-  const explicit = options.allowedHosts;
+// DNS-rebinding / Host protection. Always enforced; `allowedHosts` is already
+// normalized (lowercased) before reaching here, and `hostName` lowercases the
+// incoming header, so matching is case-insensitive.
+function hostAllowed(allowedHosts: string[] | undefined, hostHeader: string | undefined): boolean {
   const name = hostName(hostHeader);
-  if (explicit) {
+  if (allowedHosts) {
     // An empty allowlist fails closed: no Host is accepted.
-    if (explicit.length === 0) return false;
-    return name !== undefined && explicit.includes(name);
+    if (allowedHosts.length === 0) return false;
+    return name !== undefined && allowedHosts.includes(name);
   }
-  // DNS-rebinding protection is always on, regardless of how the server is bound
-  // or authenticated. Without an explicit allowlist, only loopback hostnames are
-  // accepted — exposing the server (reverse proxy or LAN) means declaring the
-  // hostname(s) the clients/proxy will use via `allowedHosts`.
   return name !== undefined && LOOPBACK_HOSTS.includes(name);
+}
+
+// Origin protection for browser-based clients, opt-in via `allowedOrigins`.
+// Requests without an Origin header (non-browser, e.g. via a reverse proxy) are
+// unaffected; requests that do carry one are validated against the allowlist.
+function originAllowed(
+  allowedOrigins: string[] | undefined,
+  originHeader: string | undefined,
+): boolean {
+  if (allowedOrigins === undefined) return true;
+  if (!originHeader) return true;
+  return allowedOrigins.includes(originHeader.toLowerCase());
 }
 
 export async function serveHttp(
@@ -183,6 +223,7 @@ export async function serveHttp(
 ): Promise<HttpServerHandle> {
   const path = options.path ?? "/mcp";
   validateAuth(options.auth);
+  validateHostLists(options);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
   await server.connect(transport);
 
@@ -190,6 +231,10 @@ export async function serveHttp(
   // configured tools, so exposing one (e.g. behind a reverse proxy or on a LAN)
   // is an explicit choice via `host`, never an accidental default.
   const host = options.host ?? "127.0.0.1";
+
+  // Normalize allowlists to lowercase so matching is case-insensitive.
+  const allowedHosts = options.allowedHosts?.map((h) => h.toLowerCase());
+  const allowedOrigins = options.allowedOrigins?.map((o) => o.toLowerCase());
 
   const httpServer = createHttpServer((req, res) => {
     try {
@@ -199,8 +244,12 @@ export async function serveHttp(
         res.writeHead(401, { "WWW-Authenticate": wwwAuthenticate(options.auth) }).end();
         return;
       }
-      // DNS-rebinding protection on the default loopback server.
-      if (!hostAllowed(options, req.headers.host)) {
+      // DNS-rebinding protection + optional Origin validation.
+      if (!hostAllowed(allowedHosts, req.headers.host)) {
+        res.writeHead(400).end();
+        return;
+      }
+      if (!originAllowed(allowedOrigins, req.headers.origin)) {
         res.writeHead(400).end();
         return;
       }
@@ -211,12 +260,14 @@ export async function serveHttp(
       }
       transport.handleRequest(req, res).catch((err: unknown) => {
         if (!res.headersSent) res.writeHead(500);
-        res.end(err instanceof Error ? err.message : String(err));
+        res.end(INTERNAL_ERROR);
+        options.onServerError?.(err instanceof Error ? err : new Error(String(err)));
       });
     } catch (err) {
-      // Never let a malformed request crash the process.
+      // Never let a malformed request crash the process, and never leak internals.
       if (!res.headersSent) res.writeHead(500);
-      res.end(err instanceof Error ? err.message : String(err));
+      res.end(INTERNAL_ERROR);
+      options.onServerError?.(err instanceof Error ? err : new Error(String(err)));
     }
   });
 
@@ -237,8 +288,8 @@ export async function serveHttp(
     httpServer.listen(options.port, host, () => {
       httpServer.removeListener("error", onError);
       // A runtime error after a successful bind must not crash the process;
-      // keep a permanent (quiet) handler that no longer rejects serveHttp.
-      httpServer.on("error", () => {});
+      // route it to the optional observer instead of swallowing silently.
+      httpServer.on("error", (err) => options.onServerError?.(err));
       resolve();
     });
   });
