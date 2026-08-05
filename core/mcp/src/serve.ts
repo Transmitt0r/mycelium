@@ -395,6 +395,13 @@ export async function serveHttp(
           transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (id) => {
+              // A session that initializes as the server starts draining must not
+              // register on a dying listener (it would be missed by transports.clear()
+              // in close() and leak both the transport and its Server) — close it.
+              if (closing) {
+                void transport.close().catch(() => {});
+                return;
+              }
               transports.set(id, transport);
               lastSeen.set(id, Date.now());
               // The (possibly SSE) initialize response stays open for the session's
@@ -513,15 +520,19 @@ export async function serveHttp(
 
 function respondWithError(res: ServerResponse, onServerError: ((err: Error) => void) | undefined) {
   return (err: unknown) => {
-    if (!res.headersSent) {
-      // Nothing sent yet: a clean 500 with the generic body.
-      res.writeHead(500);
-      res.end(INTERNAL_ERROR);
-    } else if (!res.writableEnded) {
-      // Headers already written (e.g. an in-flight SSE stream): don't inject a
-      // raw text body into the stream, which would corrupt it — just close it.
-      // The `writableEnded` guard also avoids ERR_STREAM_ALREADY_FINISHED.
-      res.end();
+    try {
+      if (!res.headersSent) {
+        // Nothing sent yet: a clean 500 with the generic body.
+        res.writeHead(500);
+        res.end(INTERNAL_ERROR);
+      } else if (!res.writableEnded) {
+        // Headers already written (e.g. an in-flight SSE stream): don't inject a
+        // raw text body into the stream, which would corrupt it — just close it.
+        // The `writableEnded` guard also avoids ERR_STREAM_ALREADY_FINISHED.
+        res.end();
+      }
+    } catch {
+      // The response may already be destroyed (socket gone) — nothing to write.
     }
     onServerError?.(err instanceof Error ? err : new Error(String(err)));
   };

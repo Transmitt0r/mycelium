@@ -34,3 +34,9 @@ Hardening (from skeptical review):
   after auth; ids are randomUUIDs (not enumerable) and the optional HTTP auth gate still
   runs before any session handling, but with multiple users sharing credentials the session
   id is effectively the bearer of authenticity and should be treated as sensitive.
+
+> **Breaking change note:** `serveHttp(server, …)` → `serveHttp(() => server, …)` is an
+> incompatible signature change of the package's public API. It is intentionally versioned
+> as `minor` because `@transmitt0r/mycelium-mcp` is unreleased (`0.0.0`) and monorepo-internal;
+> both consumers (apps/trilium, apps/paperless-ngx) are updated to the factory form in this
+> same PR. Bump to `major` before the first published release if this API ships unchanged.
