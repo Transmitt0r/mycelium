@@ -38,11 +38,13 @@ RUN pnpm install --frozen-lockfile
 # dist/mcp-server.js importing '@transmitt0r/mycelium-mcp'.
 RUN pnpm -r --filter './core/*' run build
 RUN pnpm --filter @transmitt0r/openclaw-plugin-paperless-ngx... run build
-# `deploy` resolves workspace:* deps (@transmitt0r/mycelium-embed/index/mcp)
-# into a real, self-contained node_modules -- no symlinks
-# back into /repo, so the runtime stage doesn't need the rest of the
-# monorepo at all. --prod skips devDependencies (vitest, typescript, ...).
-RUN pnpm --filter @transmitt0r/openclaw-plugin-paperless-ngx deploy --legacy --prod /app
+# `deploy` (with injectWorkspacePackages in pnpm-workspace.yaml) packs the
+# workspace:* deps (@transmitt0r/mycelium-embed/index/mcp) into a real,
+# self-contained node_modules -- no symlinks back into /repo, so the runtime
+# stage doesn't need the rest of the monorepo at all. (--legacy deploy left
+# dangling /repo symlinks that ERR_MODULE_NOT_FOUND'd at runtime.)
+# --prod skips devDependencies (vitest, typescript, ...).
+RUN pnpm --filter @transmitt0r/openclaw-plugin-paperless-ngx deploy --prod /app
 # `openclaw` is only a peerDependency for the OpenClaw-plugin entrypoint
 # (dist/index.js), which this image never runs -- but pnpm's peer-dependency
 # auto-install still pulls it into the deploy regardless of
