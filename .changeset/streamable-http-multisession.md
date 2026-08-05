@@ -38,7 +38,11 @@ Hardening (from skeptical review):
 - All sessions share a single namespace and a session id is the only link between requests
   after auth; ids are randomUUIDs (not enumerable) and the optional HTTP auth gate still
   runs before any session handling, but with multiple users sharing credentials the session
-  id is effectively the bearer of authenticity and should be treated as sensitive.
+  id is effectively the bearer of authenticity and should be treated as sensitive. Binding a
+  session to a *specific* credential isn't implemented because `serveHttp`'s auth is a single
+  shared static credential (one Bearer token or one Basic user), i.e. every legitimate client
+  presents the same `Authorization` header — there is no distinct identity to bind to, so the
+  unguessable session id is the actual post-auth authority.
 
 > **Breaking change note:** the signature changes from `serveHttp(server, …)` to
 > `serveHttp(() => createMcpServer(...), …)` — a *factory* that returns a fresh Server per

@@ -329,8 +329,11 @@ export async function serveHttp(
   const httpServer = createHttpServer(
     {
       // Bound the *request* phase so a client that never completes a body
-      // (slow-loris) can't pin a reserved session slot indefinitely. An open
-      // SSE *response* is unaffected — these time the request, not the stream.
+      // (slow-loris) can't pin a reserved session slot indefinitely. On the
+      // modern Node this repo targets (≥18.11), requestTimeout/headersTimeout
+      // time receiving the REQUEST only and are cleared on response finish, so
+      // a long-lived SSE response and a slow tool call are unaffected. The node
+      // engines field is the source of truth for the minimum supported runtime.
       requestTimeout: 30_000,
       headersTimeout: 15_000,
     },
