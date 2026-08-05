@@ -37,9 +37,10 @@ Requests that fail the check get `401` with a `WWW-Authenticate` challenge adver
 configured schemes (Bearer and/or Basic). The auth check runs before any path handling, so an
 unauthenticated client can't probe which MCP paths exist.
 
-Bind-address defaulting is fail-safe: an unauthenticated server (no `auth`, no `host`) binds
-**127.0.0.1 (loopback) only** — never every interface. Set `auth` (and optionally `host`) when
-you intend to expose it, e.g. behind a reverse proxy.
+Bind-address defaulting is fail-safe: every server binds **127.0.0.1 (loopback) only** unless you
+pass an explicit `host`. MCP servers execute arbitrary configured tools, so exposing one is an
+explicit choice — set `host` to the desired interface (e.g. `"0.0.0.0"`) when you intend to put
+it behind a reverse proxy, and pair it with `auth` so the exposed endpoint isn't open.
 
 `myTools` is an array of `BridgeableTool` — the same `{name, description, parameters, execute}`
 shape OpenClaw's `AnyAgentTool` already has, passed in unmodified.

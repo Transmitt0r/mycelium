@@ -17,7 +17,7 @@ export interface ServeHttpAuth {
 
 export interface ServeHttpOptions {
   port: number;
-  /** Local address/interface to bind. Defaults to loopback when no `auth` is set, otherwise all interfaces. */
+  /** Local address/interface to bind. Defaults to the loopback interface. */
   host?: string;
   path?: string;
   /** When provided, requests must carry matching credentials (Bearer or Basic). */
@@ -47,6 +47,34 @@ function parseCredentials(header: string): { scheme: string; credential: string 
   };
 }
 
+// The canonical "username:password" only when Basic auth is fully configured
+// (both fields non-empty). `undefined` otherwise, so a half-empty config can
+// never act as a working Basic credential. validateAuth() rejects such configs
+// at startup; this is defense-in-depth for the request path.
+function basicCredentials(auth: ServeHttpAuth): string | undefined {
+  if (!auth.basic || auth.basic.username.length === 0 || auth.basic.password.length === 0) {
+    return undefined;
+  }
+  return `${auth.basic.username}:${auth.basic.password}`;
+}
+
+// Decode a Basic credential, returning undefined when it isn't valid base64.
+// Re-encoding and comparing normalises away padding variants so different
+// encodings of the same value are accepted, while garbage is rejected.
+function decodeBasic(credential: string): string | undefined {
+  const normalized = credential.replace(/=+$/, "");
+  let decoded: Buffer;
+  try {
+    decoded = Buffer.from(normalized, "base64");
+  } catch {
+    return undefined;
+  }
+  if (decoded.toString("base64").replace(/=+$/, "") !== normalized) {
+    return undefined;
+  }
+  return decoded.toString("utf8");
+}
+
 function requestAuthorized(auth: ServeHttpAuth | undefined, req: IncomingMessage): boolean {
   if (!auth) return true;
 
@@ -60,11 +88,12 @@ function requestAuthorized(auth: ServeHttpAuth | undefined, req: IncomingMessage
     return constantTimeEqual(parsed.credential, auth.bearerToken);
   }
 
-  if (auth.basic && parsed.scheme === "basic") {
-    const expected = Buffer.from(`${auth.basic.username}:${auth.basic.password}`).toString(
-      "base64",
-    );
-    return constantTimeEqual(parsed.credential, expected);
+  const expectedBasic = basicCredentials(auth);
+  if (expectedBasic !== undefined && parsed.scheme === "basic") {
+    const decoded = decodeBasic(parsed.credential);
+    if (decoded !== undefined) {
+      return constantTimeEqual(decoded, expectedBasic);
+    }
   }
 
   return false;
@@ -80,14 +109,21 @@ function wwwAuthenticate(auth: ServeHttpAuth): string {
   return challenges.join(", ");
 }
 
+// Fail fast on partial or empty auth config rather than letting a half-empty
+// config silently weaken the gate (e.g. `basic: { username: "", password: "" }`).
 function validateAuth(auth: ServeHttpAuth | undefined): void {
   if (!auth) return;
-  const hasBearer = typeof auth.bearerToken === "string" && auth.bearerToken.length > 0;
-  const hasBasic = !!auth.basic && auth.basic.username.length > 0 && auth.basic.password.length > 0;
-  if (!hasBearer && !hasBasic) {
-    throw new Error(
-      "serveHttp: auth requires at least one of bearerToken or basic with non-empty credentials",
-    );
+  if (typeof auth.bearerToken === "string" && auth.bearerToken.length === 0) {
+    throw new Error("serveHttp: auth.bearerToken must be a non-empty string when provided");
+  }
+  if (
+    auth.basic !== undefined &&
+    (auth.basic.username.length === 0 || auth.basic.password.length === 0)
+  ) {
+    throw new Error("serveHttp: auth.basic requires non-empty username and password");
+  }
+  if (!auth.bearerToken && !auth.basic) {
+    throw new Error("serveHttp: auth requires at least one of bearerToken or basic");
   }
 }
 
@@ -100,12 +136,10 @@ export async function serveHttp(
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
   await server.connect(transport);
 
-  // An unauthenticated server must not silently listen on every interface: MCP
-  // servers execute arbitrary configured tools. When no auth is configured,
-  // default to the loopback interface unless an explicit host is given;
-  // authenticated servers default to all interfaces so they can be exposed
-  // behind a reverse proxy.
-  const host = options.host ?? (options.auth ? undefined : "127.0.0.1");
+  // Fail-safe default: bind loopback only. MCP servers execute arbitrary
+  // configured tools, so exposing one (e.g. behind a reverse proxy or on a LAN)
+  // is an explicit choice via `host`, never an accidental default.
+  const host = options.host ?? "127.0.0.1";
 
   const httpServer = createHttpServer((req, res) => {
     // Authorize before the path check so unauthenticated clients can't tell a
@@ -125,7 +159,20 @@ export async function serveHttp(
     });
   });
 
-  await new Promise<void>((resolve) => httpServer.listen(options.port, host, resolve));
+  // Surface bind failures (EADDRINUSE, EADDRNOTAVAIL) instead of hanging the
+  // promise on an unhandled 'error' event.
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: Error) => {
+      httpServer.removeListener("error", onError);
+      reject(err);
+    };
+    httpServer.once("error", onError);
+    httpServer.listen(options.port, host, () => {
+      httpServer.removeListener("error", onError);
+      resolve();
+    });
+  });
+
   const address = httpServer.address();
   const actualPort = address && typeof address === "object" ? address.port : options.port;
 
