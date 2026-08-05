@@ -114,6 +114,13 @@ function parseHostList(env: NodeJS.ProcessEnv, name: string): string[] | undefin
   return hosts.length > 0 ? hosts : undefined;
 }
 
+// Only the loopback interfaces are considered safe to bind unauthenticated
+// (core/mcp's default Host allowlist uses the same set: 127.0.0.1, localhost,
+// ::1). Anything else is a network exposure switch.
+function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
 // No SecretRef concept exists outside OpenClaw's config system -- an env
 // var is already either a plain string or unset, so embedding.apiKey is
 // read the same way baseUrl/model/etc. are.
@@ -180,6 +187,21 @@ function readReadOnlyFlag(env: NodeJS.ProcessEnv, name: string): boolean {
 export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
   const transport = env.MCP_TRANSPORT;
   if (transport === "http") {
+    const host = parseBindHost(env, "MCP_BIND_HOST", "127.0.0.1");
+    const allowedHosts = parseHostList(env, "MCP_ALLOWED_HOSTS");
+    // Fail closed on non-loopback exposure: binding 0.0.0.0 without an
+    // explicit host allowlist would ship an unauthenticated, network-reachable
+    // server that the default loopback-only Host check can't protect (the Host
+    // header is client-controlled, so a remote client just sends "localhost").
+    // The app has no built-in auth, so a non-loopback bind is only sensible
+    // behind an authenticated reverse proxy -- which always sends a real
+    // hostname, so MCP_ALLOWED_HOSTS is never an unreasonable burden.
+    if (!isLoopbackHost(host) && allowedHosts === undefined) {
+      throw new Error(
+        `MCP_BIND_HOST is bound to non-loopback interface "${host}" but MCP_ALLOWED_HOSTS is not set ` +
+          "(the app has no built-in auth)",
+      );
+    }
     return {
       transport: "http",
       port: parsePortEnv(env, "MCP_PORT", 3000),
@@ -188,11 +210,11 @@ export function readTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
       // (e.g. a bridged Docker network in front of a reverse proxy) is an
       // explicit opt-in via MCP_BIND_HOST -- an MCP server executes arbitrary
       // configured tools, so reaching it must never be an accident.
-      host: parseBindHost(env, "MCP_BIND_HOST", "127.0.0.1"),
+      host,
       // Reverse proxies (e.g. Caddy) send the public hostname in the Host
       // header, which core/mcp's DNS-rebinding protection rejects unless the
       // hostname is on the allowlist. Required for any non-loopback exposure.
-      allowedHosts: parseHostList(env, "MCP_ALLOWED_HOSTS"),
+      allowedHosts,
     };
   }
   // Fail closed on an unknown transport value instead of silently falling

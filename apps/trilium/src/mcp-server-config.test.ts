@@ -252,13 +252,14 @@ describe("readTransportConfig", () => {
     expect(readTransportConfig({ MCP_TRANSPORT: "http" })).toMatchObject({ host: "127.0.0.1" });
   });
 
-  it("binds to an explicit MCP_BIND_HOST when set", () => {
-    expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_BIND_HOST: "0.0.0.0" })).toEqual({
-      transport: "http",
-      port: 3000,
-      path: undefined,
-      host: "0.0.0.0",
-    });
+  it("binds to an explicit MCP_BIND_HOST when set (with a host allowlist for non-loopback)", () => {
+    expect(
+      readTransportConfig({
+        MCP_TRANSPORT: "http",
+        MCP_BIND_HOST: "0.0.0.0",
+        MCP_ALLOWED_HOSTS: "mcp.grotz.io",
+      }),
+    ).toMatchObject({ host: "0.0.0.0", allowedHosts: ["mcp.grotz.io"] });
     // An empty value stays inert (Docker/k8s artifact) and keeps loopback.
     expect(readTransportConfig({ MCP_TRANSPORT: "http", MCP_BIND_HOST: "" })).toEqual({
       transport: "http",
@@ -268,9 +269,19 @@ describe("readTransportConfig", () => {
     });
   });
 
+  it("refuses a non-loopback bind with no MCP_ALLOWED_HOSTS (fail-closed, no app auth)", () => {
+    expect(() => readTransportConfig({ MCP_TRANSPORT: "http", MCP_BIND_HOST: "0.0.0.0" })).toThrow(
+      "MCP_BIND_HOST is bound to non-loopback interface",
+    );
+  });
+
   it("trims surrounding whitespace from MCP_BIND_HOST", () => {
     expect(
-      readTransportConfig({ MCP_TRANSPORT: "http", MCP_BIND_HOST: " 0.0.0.0 " }),
+      readTransportConfig({
+        MCP_TRANSPORT: "http",
+        MCP_BIND_HOST: " 0.0.0.0 ",
+        MCP_ALLOWED_HOSTS: "mcp.grotz.io",
+      }),
     ).toMatchObject({ host: "0.0.0.0" });
   });
 
