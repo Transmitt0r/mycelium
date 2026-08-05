@@ -85,6 +85,8 @@ jobs:
     if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     strategy:
+      # Each app's tag is resolved and gated independently in the meta step;
+      # a job for one app must not block the other.
       fail-fast: false
       matrix:
         include:
@@ -103,26 +105,33 @@ jobs:
         with:
           fetch-depth: 0 # need the release tags to derive the version
 
-      # Resolve the app's latest release tag and derive version + image tags.
-      # github.ref_name / github.repository here are the generic per-app
-      # values (only tags/commits under this app's own path count), passed
-      # via env not shell interpolation. GHCR requires lowercase image names,
-      # so lowercase the owner/repo path. "latest" is only added for stable
-      # (non-prerelease) versions so a v2.0.0-rc.1 tag never overwrites it.
+      # Resolve this app's latest release tag and derive version + image tags.
+      # The matrix.* values below are workflow-controlled (safe to inline);
+      # the trigger ref and repo owner come in via env, not shell
+      # interpolation, to avoid script injection from tag names. GHCR
+      # requires lowercase image names, so lowercase the owner path. We only
+      # publish when the resolved tag points at the triggering commit -- i.e.
+      # this run actually released the app -- so a push without a new release
+      # (or one that only released the other app) never mutates an existing
+      # version tag. "latest" is only added for stable (non-prerelease)
+      # versions so a v2.0.0-rc.1 tag never overwrites it.
       - name: Compute image tags
         id: meta
         env:
-          REPOSITORY: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          TRIGGER_SHA: ${{ github.sha }}
         run: |
           PREFIX="${{ matrix.package }}-"
-          TAG=$(git tag -l "${PREFIX}v*" --sort=-v:refname | head -1)
-          if [[ -z "$TAG" ]]; then
-            echo "No release tag for ${{ matrix.app }} yet; skipping."
+          # Ascending version sort, take the last: stable v2.0.0 sorts above
+          # a v2.0.0-rc.1 prerelease, so the highest stable wins.
+          TAG=$(git tag -l "${PREFIX}v*" --sort=v:refname | tail -1)
+          if [[ -z "$TAG" ]] || [[ "$(git rev-parse "$TAG")" != "$TRIGGER_SHA" ]]; then
+            echo "No release for ${{ matrix.app }} at this commit; skipping."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           VERSION="${TAG#$PREFIX}"
-          IMAGE="ghcr.io/${REPOSITORY,,}/${{ matrix.image }}"
+          IMAGE="ghcr.io/${OWNER,,}/${{ matrix.image }}"
           TAGS="${IMAGE}:${VERSION},${IMAGE}:${VERSION#v}"
           if [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             TAGS="${TAGS},${IMAGE}:latest"
