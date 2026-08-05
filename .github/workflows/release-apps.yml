@@ -139,8 +139,10 @@ jobs:
         include:
           - app: paperless-ngx
             image: mycelium-paperless-ngx-mcp
+            pkg: "@transmitt0r/openclaw-plugin-paperless-ngx"
           - app: trilium
             image: mycelium-trilium-mcp
+            pkg: "@transmitt0r/openclaw-plugin-trilium"
     permissions:
       contents: read # to check out the build context
       packages: write # to push images to GHCR -- and nothing else
@@ -185,22 +187,41 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Strict semver-check: vX.Y.Z or X.Y.Z with optional prerelease
-          # suffix. Anything else (injection attempt, bad data) fails the leg.
-          if [[ ! "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+          # Normalize the recorded version to a bare semver. Under
+          # semantic-release-monorepo, nextRelease.version is either a bare
+          # semver ("1.3.2") or the release-tag string, which is this app's
+          # expected npm package name followed by "-v<semver>" (e.g.
+          # "@transmitt0r/openclaw-plugin-trilium-v1.3.2"). Strip ONLY that
+          # exact, expected package prefix if present -- so a tag belonging to
+          # a different app, or any unexpected leading text, is left intact and
+          # then rejected below instead of being silently republished under
+          # this app's image name.
+          EXPECTED_PREFIX="${{ matrix.pkg }}-"
+          TAG="$VERSION"
+          if [[ "$VERSION" == "$EXPECTED_PREFIX"* ]]; then
+            TAG="${VERSION#"$EXPECTED_PREFIX"}"
+          fi
+          # TAG must now be a strict semver: vX.Y.Z or X.Y.Z with an optional
+          # prerelease suffix. Anything else (wrong-app tag, garbage, trailing
+          # junk, a registry-style path) fails the leg -- no fake green. The
+          # prerelease group is end-anchored, so it can never swallow a
+          # name-to-version separator: there is no separate name group to be
+          # greedy, and an input like "1.2.3-rc-1.2.3" stays a prerelease
+          # (no bogus :latest).
+          if [[ ! "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid version '$VERSION' recorded for ${{ matrix.app }}; aborting." >&2
             exit 1
           fi
           IMAGE="ghcr.io/${OWNER,,}/${{ matrix.image }}"
-          # Normalize to a bare version + a v-prefixed alias so the two are
-          # never duplicated (nextRelease.version is bare, e.g. 1.1.0).
-          BARE="${VERSION#v}"
+          # Tag both a v-prefixed alias and the bare version so the two are
+          # never duplicated (BARE strips a leading v, e.g. 1.3.2).
+          BARE="${TAG#v}"
           TAGS="${IMAGE}:v${BARE},${IMAGE}:${BARE}"
-          if [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             TAGS="${TAGS},${IMAGE}:latest"
           fi
           echo "publish=true" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=${BARE}" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
