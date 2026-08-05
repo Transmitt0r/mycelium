@@ -82,7 +82,7 @@ jobs:
   # onepassword app has none.
   publish-images:
     needs: release
-    if: ${{ !cancelled() && !failure() }}
+    if: ${{ success() }}
     runs-on: ubuntu-latest
     strategy:
       # Each app's tag is resolved and gated independently in the meta step;
@@ -105,16 +105,16 @@ jobs:
         with:
           fetch-depth: 0 # need the release tags to derive the version
 
-      # Resolve this app's latest release tag and derive version + image tags.
-      # The matrix.* values below are workflow-controlled (safe to inline);
-      # the trigger ref and repo owner come in via env, not shell
-      # interpolation, to avoid script injection from tag names. GHCR
+      # Resolve this app's release tag at the triggering commit and derive
+      # version + image tags. The matrix.* values below are workflow-controlled
+      # (safe to inline); the trigger ref and repo owner come in via env, not
+      # shell interpolation, to avoid script injection from tag names. GHCR
       # requires lowercase image names, so lowercase the owner path. We only
-      # publish when the resolved tag points at the triggering commit -- i.e.
-      # this run actually released the app -- so a push without a new release
-      # (or one that only released the other app) never mutates an existing
-      # version tag. "latest" is only added for stable (non-prerelease)
-      # versions so a v2.0.0-rc.1 tag never overwrites it.
+      # publish when this app's release tag exists AT the triggering commit --
+      # i.e. this run actually released the app -- so a push without a new
+      # release (or one that only released the other app) never touches an
+      # existing version tag. "latest" is only added for stable
+      # (non-prerelease) versions so a v2.0.0-rc.1 tag never overwrites it.
       - name: Compute image tags
         id: meta
         env:
@@ -122,10 +122,12 @@ jobs:
           TRIGGER_SHA: ${{ github.sha }}
         run: |
           PREFIX="${{ matrix.package }}-"
-          # Ascending version sort, take the last: stable v2.0.0 sorts above
-          # a v2.0.0-rc.1 prerelease, so the highest stable wins.
-          TAG=$(git tag -l "${PREFIX}v*" --sort=v:refname | tail -1)
-          if [[ -z "$TAG" ]] || [[ "$(git rev-parse "$TAG")" != "$TRIGGER_SHA" ]]; then
+          # Tags AT this commit, not "latest by sort order": sorting is
+          # exactly where prereleases get mis-ranked, and this is precisely
+          # the "did this run release the app" semantics we want. --points-at
+          # dereferences annotated tags correctly, so no ^{commit} needed.
+          TAG=$(git tag --points-at "$TRIGGER_SHA" "${PREFIX}v*" | head -1)
+          if [[ -z "$TAG" ]]; then
             echo "No release for ${{ matrix.app }} at this commit; skipping."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
