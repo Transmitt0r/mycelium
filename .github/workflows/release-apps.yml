@@ -17,22 +17,34 @@ jobs:
       # to release) must not stop the others.
       fail-fast: false
       matrix:
-        app: [paperless-ngx, trilium, onepassword]
+        # Only app is needed here (the GHCR image basename lives in
+        # publish-images' own matrix, and the release package's name is
+        # hard-coded in each app's own .releaserc.json). onepassword ships no
+        # Dockerfile and its .releaserc has no record-release successCmd, so
+        # -- like the other apps on a no-op push -- its Ensure step below
+        # writes an empty-version file, which publish-images ignores.
+        include:
+          - app: paperless-ngx
+          - app: trilium
+          - app: onepassword
     permissions:
       contents: write # to publish a GitHub release and push the release tag
       issues: write # to comment on released issues
       pull-requests: write # to comment on released pull requests
       id-token: write # to enable OIDC for npm trusted publishing/provenance
+      # NOTE: intentionally NOT packages:write here -- this job runs
+      # third-party release/toolchain code (semantic-release + dependency
+      # lifecycle scripts) and must not be able to push images to GHCR.
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0 # semantic-release-monorepo needs full history to
           # scope commits/tags to this app's own path
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -50,12 +62,8 @@ jobs:
       # Trusted publishing requires npm CLI >=11.5.1; the version bundled
       # with a given Node release can lag behind that, so pin explicitly
       # rather than relying on whatever setup-node happens to install.
-      # Stick to the 11.x line, not @latest: npm 12.0.0 (2026-07-08) changed
-      # `npm pack --json`'s output from a top-level array to an object keyed
-      # by package name, which broke ClawHub CLI v0.23.1's own npm-pack
-      # invocation ("npm pack did not return a tarball filename" -- it reads
-      # `npmOutput[0]?.filename`, confirmed by reading ClawHub's own source).
-      # >=11.5.1 already satisfies the trusted-publishing requirement.
+      # Stick to the 11.x line, not @latest (see AGENTS.md: npm 12 changed
+      # `npm pack --json` output and broke ClawHub CLI v0.23.1).
       - run: npm install -g npm@^11
 
       # semantic-release-monorepo (see apps/${{ matrix.app }}/.releaserc.json's
@@ -63,6 +71,10 @@ jobs:
       # running from apps/${{ matrix.app }} against the shared repo history
       # (all three apps + core/tools share one git log since the
       # git-subtree merge) only considers this app's own commits.
+      #
+      # If any release stage (npm, ClawHub, tag) fails, this step fails and
+      # the version-info step below is skipped, so no image is published for
+      # this app.
       - name: Release
         working-directory: apps/${{ matrix.app }}
         run: pnpm run release
@@ -72,3 +84,171 @@ jobs:
           # @semantic-release/exec publishCmd -- only invoked once
           # semantic-release has actually decided to publish a release.
           CLAWHUB_API_KEY: ${{ secrets.CLAWHUB_API_KEY }}
+
+      # Announce the released version for the publish-images job. Each app's
+      # .releaserc.json's @semantic-release/exec successCmd
+      # (scripts/record-release-version.sh) writes <app>.release.json at the
+      # repo root ONLY when semantic-release actually published a release for
+      # this app in this run -- the authoritative nextRelease.version, not an
+      # inference from the git tag. A leg that didn't release (no-op re-run,
+      # nothing to release, or a failed release stage) produces no file.
+      #
+      # We then ensure a file ALWAYS exists (empty version when nothing
+      # released) so the upload below always produces an artifact and the
+      # publish-images job's download never fails on the normal "no release
+      # on this push" case -- while a real download error is still surfaced
+      # (no continue-on-error), because the artifact is guaranteed present.
+      - name: Ensure release info present
+        run: |
+          set -euo pipefail
+          if [[ ! -f "${{ matrix.app }}.release.json" ]]; then
+            printf '{"app":"%s","version":""}\n' "${{ matrix.app }}" > "${{ matrix.app }}.release.json"
+          fi
+
+      # Each matrix leg uploads under a UNIQUE artifact name (upload-artifact
+      # v4 forbids two uploads with the same name in one run), so there is no
+      # collision or ordering race.
+      - name: Upload release info
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-info-${{ matrix.app }}
+          path: ${{ matrix.app }}.release.json
+          if-no-files-found: ignore
+
+  # Build + push the standalone MCP-server Docker images to GHCR so
+  # deployments (e.g. Komodo) can pull ready-made images. Runs as its own job
+  # with the absolute minimum token scope (packages: write only; no
+  # contents/issues/pull-requests) and only for apps the release job recorded
+  # a version for. Lives in the same workflow run rather than a separate
+  # `push: tags` workflow because tags created with the repo's GITHUB_TOKEN
+  # do not re-trigger workflows (GitHub recursion protection).
+  publish-images:
+    needs: release
+    # Run even if one release leg failed (a failing sibling leg must not
+    # block publishing for apps whose release succeeded). Skip only if the
+    # whole run was cancelled.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Each app's image is built/pushed independently. `image` is the GHCR
+      # basename and is DEFINED HERE in the workflow (never read from the
+      # release job's artifact), so third-party release/toolchain code cannot
+      # steer the privileged job into pushing an arbitrary image name/tag.
+      fail-fast: false
+      matrix:
+        include:
+          - app: paperless-ngx
+            image: mycelium-paperless-ngx-mcp
+          - app: trilium
+            image: mycelium-trilium-mcp
+    permissions:
+      contents: read # to check out the build context
+      packages: write # to push images to GHCR -- and nothing else
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Download every app's release-info artifact (each leg uploaded under a
+      # unique name; every leg always uploads one, so this never comes up
+      # empty on a normal push). No continue-on-error: a real download
+      # failure must surface rather than be mistaken for "nothing to
+      # publish". The top-level concurrency group (github.workflow-ref)
+      # serializes overlapping runs, so publish-images can't race a sibling
+      # run over the :latest tag.
+      - name: Download release info
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-info-*
+          path: release-info
+          merge-multiple: true
+
+      # Read this app's VERSION from its artifact file and validate it hard.
+      # Only the version crosses the trust boundary from the release job; the
+      # image basename comes from the workflow matrix above, and the owner
+      # from env. A malformed version (anything not semver-ish) aborts this
+      # leg instead of being pushed. ghcr requires lowercase image names, so
+      # lowercase the owner path. "latest" is only added for stable
+      # (non-prerelease) versions so a v2.0.0-rc.1 tag never overwrites it.
+      - name: Compute image tags
+        id: meta
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          INFO="release-info/${{ matrix.app }}.release.json"
+          VERSION=""
+          if [[ -f "$INFO" ]]; then
+            VERSION=$(jq -r '.version // empty' "$INFO")
+          fi
+          if [[ -z "$VERSION" ]]; then
+            echo "No release recorded for ${{ matrix.app }}; skipping."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Strict semver-check: vX.Y.Z or X.Y.Z with optional prerelease
+          # suffix. Anything else (injection attempt, bad data) fails the leg.
+          if [[ ! "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version '$VERSION' recorded for ${{ matrix.app }}; aborting." >&2
+            exit 1
+          fi
+          IMAGE="ghcr.io/${OWNER,,}/${{ matrix.image }}"
+          # Normalize to a bare version + a v-prefixed alias so the two are
+          # never duplicated (nextRelease.version is bare, e.g. 1.1.0).
+          BARE="${VERSION#v}"
+          TAGS="${IMAGE}:v${BARE},${IMAGE}:${BARE}"
+          if [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            TAGS="${TAGS},${IMAGE}:latest"
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      # Bake the released version into the app's package.json in the build
+      # context. semantic-release bumps package.json only in the release
+      # job's workspace and never commits it (no @semantic-release/git), so
+      # the committed tree carries the previous version; both apps' servers
+      # read their version from package.json at runtime (mcp-server.ts) and
+      # would otherwise report a version that disagrees with the pushed tag.
+      # Patching the build context here makes the image self-report the same
+      # version it was tagged with. Only touches the runner's working tree,
+      # never the repo.
+      - name: Bake released version into build context
+        if: steps.meta.outputs.publish == 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.meta.outputs.version }}"
+          node -e "
+            const fs = require('node:fs');
+            const p = 'apps/${{ matrix.app }}/package.json';
+            const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+            j.version = process.argv[1];
+            fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+          " "${VERSION#v}"
+
+      - name: Set up Docker Buildx
+        if: steps.meta.outputs.publish == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to GHCR
+        if: steps.meta.outputs.publish == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Context is the repo root, not the app directory: the image needs its
+      # @transmitt0r/mycelium-* workspace siblings (see both Dockerfiles).
+      - name: Build and push
+        if: steps.meta.outputs.publish == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}

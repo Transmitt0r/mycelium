@@ -9,7 +9,8 @@
       "@semantic-release/exec",
       {
         "prepareCmd": "bash ../../scripts/sync-openclaw-plugin-version.sh",
-        "publishCmd": "bash ../../scripts/publish-to-clawhub.sh"
+        "publishCmd": "bash ../../scripts/publish-to-clawhub.sh",
+        "successCmd": "bash ../../scripts/record-release-version.sh ${nextRelease.version}"
       }
     ],
     "@semantic-release/github"
