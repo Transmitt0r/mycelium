@@ -17,6 +17,10 @@
 #   docker run --rm -p 3000:3000 -e MCP_TRANSPORT=http \
 #     -e PAPERLESS_BASE_URL=... -e PAPERLESS_API_TOKEN=... \
 #     paperless-ngx-mcp
+#
+# To keep secrets out of plaintext env, PAPERLESS_BASE_URL_FILE /
+# PAPERLESS_API_TOKEN_FILE take a path to a (Docker-secret) file whose trimmed
+# contents are used instead -- e.g. -e PAPERLESS_API_TOKEN_FILE=/run/secrets/token
 
 FROM node:22-slim AS build
 RUN corepack enable

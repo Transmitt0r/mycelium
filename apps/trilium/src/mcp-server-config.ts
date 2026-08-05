@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import type { SemanticSearchPluginConfig } from "./semantic/handle.js";
 
 export type StandaloneConfig = {
@@ -10,8 +11,17 @@ export type TransportConfig =
   | { transport: "stdio" }
   | { transport: "http"; port: number; path?: string };
 
+// Docker-secret convention: <NAME>_FILE points at a file (typically a
+// bind-mounted secret) whose trimmed contents are the value -- trimming drops
+// the trailing newline such files carry. Without it, the plain <NAME> env var
+// is used exactly as before.
+function readEnvOrFile(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const filePath = env[`${name}_FILE`];
+  return filePath ? readFileSync(filePath, "utf8").trim() : env[name];
+}
+
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
-  const value = env[name];
+  const value = readEnvOrFile(env, name);
   if (!value) {
     throw new Error(`${name} environment variable is required`);
   }
