@@ -22,6 +22,25 @@ function echoTool(): BridgeableTool<{ text: string }> {
   };
 }
 
+function annotatedTool(): BridgeableTool<{ query: string }> {
+  return {
+    name: "search",
+    description: "Searches without mutating anything",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false },
+    async execute(_toolCallId, params) {
+      return {
+        content: [{ type: "text", text: params.query }],
+        details: { searched: params.query },
+      };
+    },
+  };
+}
+
 function throwingTool(): BridgeableTool {
   return {
     name: "boom",
@@ -54,6 +73,18 @@ describe("createMcpServer (real MCP protocol round-trip)", () => {
       properties: { text: { type: "string" } },
       required: ["text"],
     });
+  });
+
+  test("tools/list carries annotations only for tools that declare them", async () => {
+    const client = await connectedClient([annotatedTool(), echoTool()]);
+    const { tools } = await client.listTools();
+
+    const search = tools.find((t) => t.name === "search");
+    expect(search?.annotations).toEqual({ readOnlyHint: true, destructiveHint: false });
+
+    const echo = tools.find((t) => t.name === "echo");
+    expect(echo?.annotations).toBeUndefined();
+    expect(echo && "annotations" in echo).toBe(false);
   });
 
   test("tools/call invokes execute() and returns its content", async () => {

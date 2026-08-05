@@ -22,6 +22,7 @@ export function createMcpServer(tools: BridgeableTool[], serverInfo: ServerInfo)
       name: tool.name,
       description: tool.description,
       inputSchema: tool.parameters as { type: "object"; [key: string]: unknown },
+      ...(tool.annotations ? { annotations: tool.annotations } : {}),
     })),
   }));
 
