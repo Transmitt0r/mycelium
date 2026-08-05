@@ -35,11 +35,18 @@ const handle = await serveHttp(
 
 `serveHttp` optionally enforces an `Authorization` check before handling any request:
 - `auth.bearerToken` requires `Authorization: Bearer <token>` (compared in constant time).
-- `auth.basic` requires `Authorization: Basic base64(username:password)` (compared in constant time, after decoding).
+- `auth.basic` requires `Authorization: Basic <base64(username:password)>` (compared in constant time, after decoding).
 - `host` controls the local interface the listener binds.
 - `allowedHosts` sets an explicit `Host` allowlist (DNS-rebinding protection).
 - `allowedOrigins` sets an explicit `Origin` allowlist for browser-based clients.
+- `maxSessions` caps simultaneously-open sessions (default 100, rejected with 503 beyond that).
+- `sessionIdleTimeoutMs` reaps sessions idle for that long (default 15 min; `0` disables; a session
+  with a still-open stream is never reaped).
 - `onServerError` is an optional observer for server errors after a successful bind.
+
+Each MCP client session gets its own transport, and the `Mcp-Session-Id` header it echoes back is
+the only link between that client's requests — treat it like a bearer token (store/forward it, and
+don't log it), since anyone who holds a valid id can drive that session after passing the auth gate.
 
 Requests that fail the check get `401` with a `WWW-Authenticate` challenge advertising only the
 configured schemes (Bearer and/or Basic). The auth check runs before any path handling, so an

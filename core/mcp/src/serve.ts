@@ -269,6 +269,9 @@ export async function serveHttp(
   // for the life of the session). A session with an open stream is alive even
   // if it hasn't sent a request recently, so the reaper must not harvest it.
   const openResponses = new Map<string, number>();
+  // Set once handle.close() begins: reject requests that race the shutdown
+  // (after transports.clear()) instead of reserving slots on a dying listener.
+  let closing = false;
   // Synchronously-reserved session count. Unlike `transports.size` (which only
   // updates when an initialize completes, i.e. asynchronously), this is bumped
   // in the same tick a new-session request is accepted, so parallel initialize
@@ -314,119 +317,133 @@ export async function serveHttp(
   const allowedHosts = options.allowedHosts?.map((h) => h.toLowerCase());
   const allowedOrigins = options.allowedOrigins?.map((o) => o.toLowerCase());
 
-  const httpServer = createHttpServer((req, res) => {
-    try {
-      // Authorize before the path check so unauthenticated clients can't tell a
-      // valid MCP path (401) from a bogus one (404) — no server-path enumeration.
-      if (options.auth && !requestAuthorized(options.auth, req)) {
-        res.writeHead(401, { "WWW-Authenticate": wwwAuthenticate(options.auth) }).end();
-        return;
-      }
-      // DNS-rebinding protection + optional Origin validation.
-      if (!hostAllowed(allowedHosts, req.headers.host)) {
-        res.writeHead(400).end();
-        return;
-      }
-      if (!originAllowed(allowedOrigins, req.headers.origin)) {
-        res.writeHead(400).end();
-        return;
-      }
-      const url = new URL(req.url ?? "/", "http://localhost");
-      if (url.pathname !== path) {
-        res.writeHead(404).end();
-        return;
-      }
-
-      const sessionId = req.headers["mcp-session-id"]?.toString();
-      if (sessionId !== undefined && sessionId.length > 0) {
-        // Client presented a session id — it must map to a live session.
-        const existing = transports.get(sessionId);
-        if (!existing) {
-          // Unknown/expired session id: reject per spec, never spawn a new one.
+  const httpServer = createHttpServer(
+    {
+      // Bound the *request* phase so a client that never completes a body
+      // (slow-loris) can't pin a reserved session slot indefinitely. An open
+      // SSE *response* is unaffected — these time the request, not the stream.
+      requestTimeout: 30_000,
+      headersTimeout: 15_000,
+    },
+    (req, res) => {
+      try {
+        // Authorize before the path check so unauthenticated clients can't tell a
+        // valid MCP path (401) from a bogus one (404) — no server-path enumeration.
+        if (options.auth && !requestAuthorized(options.auth, req)) {
+          res.writeHead(401, { "WWW-Authenticate": wwwAuthenticate(options.auth) }).end();
+          return;
+        }
+        // DNS-rebinding protection + optional Origin validation.
+        if (!hostAllowed(allowedHosts, req.headers.host)) {
+          res.writeHead(400).end();
+          return;
+        }
+        if (!originAllowed(allowedOrigins, req.headers.origin)) {
+          res.writeHead(400).end();
+          return;
+        }
+        const url = new URL(req.url ?? "/", "http://localhost");
+        if (url.pathname !== path) {
           res.writeHead(404).end();
           return;
         }
-        // Re-arm the idle clock for this session.
-        lastSeen.set(sessionId, Date.now());
-        // A GET/SSE stream stays open for the session's life; mark it so the
-        // idle reaper doesn't harvest a live (but quiet) session.
-        trackOpen(sessionId, res);
-        existing.handleRequest(req, res).catch(respondWithError(res, options.onServerError));
-        return;
-      }
-
-      // No session id → a fresh (initialize) session is being attempted. Reserve
-      // a slot synchronously (same tick), so parallel initialize requests can't
-      // all slip past the cap before any completion is counted.
-      if (sessions >= maxSessions) {
-        res.writeHead(503).end();
-        return;
-      }
-      sessions++;
-
-      // Let a fresh per-session transport decide: if this request is a valid
-      // initialize it assigns the session id and registers itself. If it turns
-      // out not to be (malformed JSON-RPC, stale id without a header, etc.) the
-      // transport is never registered — tear it down so it can't leak.
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (id) => {
-          transports.set(id, transport);
-          lastSeen.set(id, Date.now());
-          // The (possibly SSE) initialize response stays open for the session's
-          // life — count it so the reaper won't harvest a freshly-open session.
-          trackOpen(id, res);
-        },
-      });
-      // Releasing the reserved slot (and any registered session) is the transport's
-      // onclose hook — the single point every teardown path funnels through. The
-      // SDK's close() is NOT idempotent (each call re-fires onclose), so guard the
-      // bookkeeping against a double-close (DELETE teardown + handle.close(), etc.)
-      // which would otherwise drift `sessions` negative and disarm the cap.
-      let released = false;
-      // Declared before onclose: a synchronous teardown in the factory-fail path
-      // (`transport.close()` while `server` is still unassigned) must read the
-      // binding as undefined rather than trip a TDZ ReferenceError.
-      let server!: Server;
-      transport.onclose = () => {
-        if (released) return;
-        released = true;
-        sessions--;
-        const id = transport.sessionId;
-        if (id) {
-          transports.delete(id);
-          lastSeen.delete(id);
-          openResponses.delete(id);
+        if (closing) {
+          // Shutdown is draining: don't accept work on a dying listener.
+          res.writeHead(503).end();
+          return;
         }
-        // Best-effort teardown of the per-session Server so any resources the
-        // factory attached (timers, upstream clients, watchers) are released.
-        if (server) void server.close().catch(() => {});
-      };
-      try {
-        server = createServer();
-      } catch (err) {
-        // A throwing factory must not leak the reserved slot or the transport.
-        void transport.close().catch(() => {});
-        throw err;
-      }
-      void server
-        .connect(transport)
-        .then(() => transport.handleRequest(req, res))
-        .catch(respondWithError(res, options.onServerError))
-        .finally(() => {
-          // Leak guard: a request that never initialized a session was never
-          // registered and only our close() will release its slot. Clean it up.
-          if (transport.sessionId === undefined) {
-            return transport.close().catch(() => {});
+
+        const sessionId = req.headers["mcp-session-id"]?.toString();
+        if (sessionId !== undefined && sessionId.length > 0) {
+          // Client presented a session id — it must map to a live session.
+          const existing = transports.get(sessionId);
+          if (!existing) {
+            // Unknown/expired session id: reject per spec, never spawn a new one.
+            res.writeHead(404).end();
+            return;
           }
+          // Re-arm the idle clock for this session.
+          lastSeen.set(sessionId, Date.now());
+          // A GET/SSE stream stays open for the session's life; mark it so the
+          // idle reaper doesn't harvest a live (but quiet) session.
+          trackOpen(sessionId, res);
+          existing.handleRequest(req, res).catch(respondWithError(res, options.onServerError));
+          return;
+        }
+
+        // No session id → a fresh (initialize) session is being attempted. Reserve
+        // a slot synchronously (same tick), so parallel initialize requests can't
+        // all slip past the cap before any completion is counted.
+        if (sessions >= maxSessions) {
+          res.writeHead(503).end();
+          return;
+        }
+        sessions++;
+
+        // Let a fresh per-session transport decide: if this request is a valid
+        // initialize it assigns the session id and registers itself. If it turns
+        // out not to be (malformed JSON-RPC, stale id without a header, etc.) the
+        // transport is never registered — tear it down so it can't leak.
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: (id) => {
+            transports.set(id, transport);
+            lastSeen.set(id, Date.now());
+            // The (possibly SSE) initialize response stays open for the session's
+            // life — count it so the reaper won't harvest a freshly-open session.
+            trackOpen(id, res);
+          },
         });
-    } catch (err) {
-      // Never let a malformed request crash the process, and never leak internals.
-      if (!res.headersSent) res.writeHead(500);
-      res.end(INTERNAL_ERROR);
-      options.onServerError?.(err instanceof Error ? err : new Error(String(err)));
-    }
-  });
+        // Releasing the reserved slot (and any registered session) is the transport's
+        // onclose hook — the single point every teardown path funnels through. The
+        // SDK's close() is NOT idempotent (each call re-fires onclose), so guard the
+        // bookkeeping against a double-close (DELETE teardown + handle.close(), etc.)
+        // which would otherwise drift `sessions` negative and disarm the cap.
+        let released = false;
+        // Declared before onclose: a synchronous teardown in the factory-fail path
+        // (`transport.close()` while `server` is still unassigned) must read the
+        // binding as undefined rather than trip a TDZ ReferenceError.
+        let server!: Server;
+        transport.onclose = () => {
+          if (released) return;
+          released = true;
+          sessions--;
+          const id = transport.sessionId;
+          if (id) {
+            transports.delete(id);
+            lastSeen.delete(id);
+            openResponses.delete(id);
+          }
+          // Best-effort teardown of the per-session Server so any resources the
+          // factory attached (timers, upstream clients, watchers) are released.
+          if (server) void server.close().catch(() => {});
+        };
+        try {
+          server = createServer();
+        } catch (err) {
+          // A throwing factory must not leak the reserved slot or the transport.
+          void transport.close().catch(() => {});
+          throw err;
+        }
+        void server
+          .connect(transport)
+          .then(() => transport.handleRequest(req, res))
+          .catch(respondWithError(res, options.onServerError))
+          .finally(() => {
+            // Leak guard: a request that never initialized a session was never
+            // registered and only our close() will release its slot. Clean it up.
+            if (transport.sessionId === undefined) {
+              return transport.close().catch(() => {});
+            }
+          });
+      } catch (err) {
+        // Never let a malformed request crash the process, and never leak internals.
+        if (!res.headersSent) res.writeHead(500);
+        res.end(INTERNAL_ERROR);
+        options.onServerError?.(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+  );
 
   // Surface bind failures (EADDRINUSE, EADDRNOTAVAIL) instead of hanging the
   // promise on an unhandled 'error' event, and clean up connected transports
@@ -460,6 +477,7 @@ export async function serveHttp(
     port: actualPort,
     host: boundHost,
     async close() {
+      closing = true;
       if (idleTimer) clearInterval(idleTimer);
       await Promise.allSettled([...transports.values()].map((t) => t.close()));
       transports.clear();

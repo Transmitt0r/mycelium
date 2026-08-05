@@ -98,10 +98,6 @@ async function main(): Promise<void> {
   // JSON Schema object at runtime (which is all BridgeableTool actually
   // needs), but TSchema declares no string index signature, so it doesn't
   // structurally satisfy Record<string, unknown> on its own.
-  const server = createMcpServer(tools as unknown as BridgeableTool[], {
-    name: "paperless-ngx",
-    version: packageVersion(),
-  });
 
   const transportConfig = readTransportConfig(process.env);
   let httpHandle: HttpServerHandle | undefined;
@@ -120,6 +116,11 @@ async function main(): Promise<void> {
     );
     logger.info?.(`listening on :${httpHandle.port}${transportConfig.path ?? "/mcp"}`);
   } else {
+    // Only the stdio path needs a standalone, eagerly-created Server.
+    const server = createMcpServer(tools as unknown as BridgeableTool[], {
+      name: "paperless-ngx",
+      version: packageVersion(),
+    });
     await serveStdio(server);
     logger.info?.("listening on stdio");
   }
