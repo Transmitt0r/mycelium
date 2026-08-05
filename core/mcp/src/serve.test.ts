@@ -373,8 +373,8 @@ describe("serveHttp multi-session", () => {
     // Cap of 1: A fills the only slot; spec-conformant teardown (DELETE) must free
     // that slot so a fresh session is admitted again. Catches slot-accounting drift.
     // NB a bare client.close() only aborts the local stream and sends no DELETE, so
-    // it does NOT release the slot — that is the documented connectionless-HTTP
-    // limitation (no idle reaper), not a regression.
+    // it does NOT release the slot immediately — cleanup of such abandoned sessions
+    // relies on the idle reaper (sessionIdleTimeoutMs), not on the DELETE path.
     const handle = await serveHttp(makeServer, { port: 0, maxSessions: 1 });
     handles.push(handle);
 
@@ -409,9 +409,11 @@ describe("serveHttp multi-session", () => {
     await expect(serveHttp(makeServer, { port: 0, sessionIdleTimeoutMs: 2.5 })).rejects.toThrow();
   });
 
-  test("an idle session is reaped after sessionIdleTimeoutMs, releasing its slot", async () => {
-    // Cap of 1 + a short reaper timeout: A fills the slot and then goes idle
-    // without DELETE; the reaper must close it so a fresh session fits again.
+  test("an idle, abandoned session is reaped after sessionIdleTimeoutMs, releasing its slot", async () => {
+    // Cap of 1 + a short reaper timeout: A fills the slot and is then abandoned
+    // (its stream closes without DELETE); the reaper must close it so a fresh
+    // session fits again. A session whose SSE stream is still open is treated as
+    // alive and is NOT reaped.
     const handle = await serveHttp(makeServer, {
       port: 0,
       maxSessions: 1,
@@ -422,6 +424,10 @@ describe("serveHttp multi-session", () => {
     const clientA = await connectClient(handle.port);
     expect((await clientA.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
 
+    // Abandon A: close() aborts the local stream WITHOUT sending DELETE, so the
+    // session stays registered but its connection (and SSE stream) is gone.
+    await clientA.close();
+
     // Wait well past the idle timeout so the sweeper (every ≤100ms) reaps A.
     await new Promise((r) => setTimeout(r, 600));
 
@@ -429,6 +435,24 @@ describe("serveHttp multi-session", () => {
     const clientB = await connectClient(handle.port);
     expect((await clientB.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
     await clientB.close();
+  });
+
+  test("a session with an open SSE stream is NOT reaped while idle", async () => {
+    // If the reaper wrongly harvested a live (quiet) session, a subsequent tool
+    // call would 404. It must survive past the idle timeout because its stream
+    // is still open.
+    const handle = await serveHttp(makeServer, { port: 0, sessionIdleTimeoutMs: 100 });
+    handles.push(handle);
+
+    const client = await connectClient(handle.port);
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+
+    // Wait well past the idle timeout with the SSE stream held open.
+    await new Promise((r) => setTimeout(r, 500));
+
+    // The session is still alive and usable.
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+    await client.close();
   });
 });
 

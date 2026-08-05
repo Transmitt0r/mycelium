@@ -265,6 +265,10 @@ export async function serveHttp(
   // session receives and fed to the idle reaper so abandoned sessions — which
   // never send DELETE — are closed instead of pinning a session slot forever.
   const lastSeen = new Map<string, number>();
+  // Number of currently-open responses per session (an SSE stream stays open
+  // for the life of the session). A session with an open stream is alive even
+  // if it hasn't sent a request recently, so the reaper must not harvest it.
+  const openResponses = new Map<string, number>();
   // Synchronously-reserved session count. Unlike `transports.size` (which only
   // updates when an initialize completes, i.e. asynchronously), this is bumped
   // in the same tick a new-session request is accepted, so parallel initialize
@@ -279,11 +283,23 @@ export async function serveHttp(
     idleTimer = setInterval(sweepIdle, Math.min(sessionIdleTimeoutMs, 60_000));
     idleTimer.unref?.();
   }
+  // A session is only harvestable when it has neither recent activity nor any
+  // still-open response stream (SSE). `?? 0` keeps an entry whose stamp is
+  // somehow missing reapable rather than pinning its slot forever.
+  function trackOpen(sessionId: string, res: ServerResponse): void {
+    openResponses.set(sessionId, (openResponses.get(sessionId) ?? 0) + 1);
+    res.once("close", () => {
+      const n = openResponses.get(sessionId);
+      if (n === undefined || n <= 1) openResponses.delete(sessionId);
+      else openResponses.set(sessionId, n - 1);
+    });
+  }
   function sweepIdle(): void {
     const now = Date.now();
     for (const [id, transport] of transports) {
-      const seen = lastSeen.get(id);
-      if (seen !== undefined && now - seen > sessionIdleTimeoutMs) {
+      const seen = lastSeen.get(id) ?? 0;
+      const open = (openResponses.get(id) ?? 0) > 0;
+      if (!open && now - seen > sessionIdleTimeoutMs) {
         void transport.close().catch(() => {});
       }
     }
@@ -332,6 +348,9 @@ export async function serveHttp(
         }
         // Re-arm the idle clock for this session.
         lastSeen.set(sessionId, Date.now());
+        // A GET/SSE stream stays open for the session's life; mark it so the
+        // idle reaper doesn't harvest a live (but quiet) session.
+        trackOpen(sessionId, res);
         existing.handleRequest(req, res).catch(respondWithError(res, options.onServerError));
         return;
       }
@@ -354,6 +373,9 @@ export async function serveHttp(
         onsessioninitialized: (id) => {
           transports.set(id, transport);
           lastSeen.set(id, Date.now());
+          // The (possibly SSE) initialize response stays open for the session's
+          // life — count it so the reaper won't harvest a freshly-open session.
+          trackOpen(id, res);
         },
       });
       // Releasing the reserved slot (and any registered session) is the transport's
@@ -362,6 +384,10 @@ export async function serveHttp(
       // bookkeeping against a double-close (DELETE teardown + handle.close(), etc.)
       // which would otherwise drift `sessions` negative and disarm the cap.
       let released = false;
+      // Declared before onclose: a synchronous teardown in the factory-fail path
+      // (`transport.close()` while `server` is still unassigned) must read the
+      // binding as undefined rather than trip a TDZ ReferenceError.
+      let server!: Server;
       transport.onclose = () => {
         if (released) return;
         released = true;
@@ -370,15 +396,12 @@ export async function serveHttp(
         if (id) {
           transports.delete(id);
           lastSeen.delete(id);
+          openResponses.delete(id);
         }
         // Best-effort teardown of the per-session Server so any resources the
         // factory attached (timers, upstream clients, watchers) are released.
-        // Safe to call from within the transport's own onclose: our `released`
-        // guard makes the resulting close() idempotent, and `server` is already
-        // assigned by the time any real session teardown runs.
         if (server) void server.close().catch(() => {});
       };
-      let server: Server;
       try {
         server = createServer();
       } catch (err) {
@@ -449,10 +472,16 @@ export async function serveHttp(
 
 function respondWithError(res: ServerResponse, onServerError: ((err: Error) => void) | undefined) {
   return (err: unknown) => {
-    if (!res.headersSent) res.writeHead(500);
-    // An SSE stream may already be finished when a handler rejects; end() on a
-    // finished response throws ERR_STREAM_ALREADY_FINISHED, so only end if open.
-    if (!res.writableEnded) res.end(INTERNAL_ERROR);
+    if (!res.headersSent) {
+      // Nothing sent yet: a clean 500 with the generic body.
+      res.writeHead(500);
+      res.end(INTERNAL_ERROR);
+    } else if (!res.writableEnded) {
+      // Headers already written (e.g. an in-flight SSE stream): don't inject a
+      // raw text body into the stream, which would corrupt it — just close it.
+      // The `writableEnded` guard also avoids ERR_STREAM_ALREADY_FINISHED.
+      res.end();
+    }
     onServerError?.(err instanceof Error ? err : new Error(String(err)));
   };
 }

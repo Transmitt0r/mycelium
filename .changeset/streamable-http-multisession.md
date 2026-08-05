@@ -27,5 +27,10 @@ Hardening (from skeptical review):
 - An idle reaper (`sessionIdleTimeoutMs`, default 15 min, `0` disables) closes sessions that
   go silent, so a client that initializes and then disconnects without sending `DELETE` (a
   bare `client.close()` only aborts the local stream and sends no `DELETE`) can't pin a slot
-  and exhaust `maxSessions` forever. Explicit `DELETE` (the SDK's `transport.terminateSession()`)
-  still releases the slot immediately.
+  and exhaust `maxSessions` forever. A session with a still-open SSE stream is treated as
+  alive and never harvested. Explicit `DELETE` (the SDK's `transport.terminateSession()`)
+  releases the slot immediately.
+- All sessions share a single namespace and a session id is the only link between requests
+  after auth; ids are randomUUIDs (not enumerable) and the optional HTTP auth gate still
+  runs before any session handling, but with multiple users sharing credentials the session
+  id is effectively the bearer of authenticity and should be treated as sensitive.
