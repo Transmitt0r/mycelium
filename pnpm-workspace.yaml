@@ -3,6 +3,13 @@ packages:
   - "tools/*"
   - "apps/*"
 
+# Hard-copy workspace:* deps into each consumer's node_modules (instead of
+# symlinking back into the repo) so `pnpm deploy --prod` produces a truly
+# self-contained /app for the standalone MCP Docker images. Legacy deploy
+# left dangling symlinks to /repo/core/* in the runtime stage
+# (ERR_MODULE_NOT_FOUND on '@transmitt0r/mycelium-mcp').
+injectWorkspacePackages: true
+
 # Most of these come from the `openclaw` peerDependency's own dependency
 # tree (@google/genai, protobufjs, tree-sitter-bash), not from any package
 # here's own dependencies -- they get installed locally because pnpm's
