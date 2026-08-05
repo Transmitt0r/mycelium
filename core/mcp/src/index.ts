@@ -42,4 +42,10 @@ export interface BridgeableTool<TParams = unknown, TDetails = unknown> {
 }
 
 export { createMcpServer, type ServerInfo } from "./bridge.js";
-export { type HttpServerHandle, type ServeHttpOptions, serveHttp, serveStdio } from "./serve.js";
+export {
+  type HttpServerHandle,
+  type ServeHttpAuth,
+  type ServeHttpOptions,
+  serveHttp,
+  serveStdio,
+} from "./serve.js";
