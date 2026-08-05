@@ -91,10 +91,23 @@ jobs:
       # repo root ONLY when semantic-release actually published a release for
       # this app in this run -- the authoritative nextRelease.version, not an
       # inference from the git tag. A leg that didn't release (no-op re-run,
-      # nothing to release, or a failed release stage) produces no file -> no
-      # image. Each matrix leg uploads under a UNIQUE artifact name
-      # (upload-artifact v4 forbids two uploads with the same name in one
-      # run), so there is no collision or ordering race.
+      # nothing to release, or a failed release stage) produces no file.
+      #
+      # We then ensure a file ALWAYS exists (empty version when nothing
+      # released) so the upload below always produces an artifact and the
+      # publish-images job's download never fails on the normal "no release
+      # on this push" case -- while a real download error is still surfaced
+      # (no continue-on-error), because the artifact is guaranteed present.
+      - name: Ensure release info present
+        run: |
+          set -euo pipefail
+          if [[ ! -f "${{ matrix.app }}.release.json" ]]; then
+            printf '{"app":"%s","version":""}\n' "${{ matrix.app }}" > "${{ matrix.app }}.release.json"
+          fi
+
+      # Each matrix leg uploads under a UNIQUE artifact name (upload-artifact
+      # v4 forbids two uploads with the same name in one run), so there is no
+      # collision or ordering race.
       - name: Upload release info
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -136,10 +149,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Download every app's release-info artifact (each leg uploaded under a
-      # unique name). No continue-on-error: a real download failure must
-      # surface rather than be mistaken for "nothing to publish". The only
-      # case where nothing matches is when every release leg failed, which is
-      # itself worth surfacing.
+      # unique name; every leg always uploads one, so this never comes up
+      # empty on a normal push). No continue-on-error: a real download
+      # failure must surface rather than be mistaken for "nothing to
+      # publish". The top-level concurrency group (github.workflow-ref)
+      # serializes overlapping runs, so publish-images can't race a sibling
+      # run over the :latest tag.
       - name: Download release info
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
