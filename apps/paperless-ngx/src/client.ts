@@ -37,11 +37,63 @@ export function createPaperlessClient(config: PaperlessClientConfig): PaperlessC
     // etc.) all expect a single comma-joined value instead -- verified
     // against a live instance.
     querySerializer: { array: { style: "form", explode: false } },
-    fetch: (request) =>
-      fetch(request, {
-        signal: AbortSignal.any([request.signal, AbortSignal.timeout(DEFAULT_TIMEOUT_MS)]),
-      }),
+    fetch: async (request) => {
+      try {
+        return await fetch(request, {
+          signal: AbortSignal.any([request.signal, AbortSignal.timeout(DEFAULT_TIMEOUT_MS)]),
+        });
+      } catch (err) {
+        throw attributeNetworkError(err, request.url);
+      }
+    },
   });
+}
+
+// Node collapses every connection-level failure (DNS, refused, TLS, reset)
+// into a bare `TypeError: fetch failed`, and openapi-fetch rethrows it
+// untouched -- a message that names neither the host nor the endpoint. That
+// matters most on the semantic sync path: @transmitt0r/mycelium-index catches
+// per-item embedding failures inside its page loop, but a failure in the
+// adapter's `listChanged` escapes the whole pass, so the host logs a naked
+// "sync pass failed: fetch failed". With an embedding endpoint also in play
+// that reads exactly like an embedding outage, and it has already been
+// misread that way once -- while the AI SDK, by contrast, always wraps its
+// own network errors ("Cannot connect to API: ..."), so a bare "fetch
+// failed" can only ever have come from here.
+//
+// The actionable detail is already hanging off `err.cause` (e.g. "connect
+// ECONNREFUSED 10.0.0.5:443"); this just lifts it into the message along
+// with the endpoint that was being called. Purely diagnostic -- the error
+// still propagates, nothing is swallowed or retried.
+function attributeNetworkError(err: unknown, url: string): unknown {
+  const endpoint = safeEndpoint(url);
+
+  // AbortSignal.timeout's DOMException is equally anonymous ("The operation
+  // was aborted due to timeout") -- name the endpoint and the deadline too.
+  if (err instanceof Error && err.name === "TimeoutError") {
+    return new Error(`paperless-ngx API timed out after ${DEFAULT_TIMEOUT_MS}ms (${endpoint})`, {
+      cause: err,
+    });
+  }
+
+  if (err instanceof TypeError && err.message === "fetch failed") {
+    const detail = err.cause instanceof Error ? err.cause.message : String(err.cause ?? "unknown");
+    return new Error(`paperless-ngx API unreachable (${endpoint}): ${detail}`, { cause: err });
+  }
+
+  // A caller-initiated abort, or anything else, is passed through untouched.
+  return err;
+}
+
+// Origin + path only: the query string carries filter noise (and, on other
+// endpoints, search terms) that has no place in a connectivity error.
+function safeEndpoint(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return url;
+  }
 }
 
 /**
