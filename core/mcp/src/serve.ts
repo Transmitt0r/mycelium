@@ -296,7 +296,15 @@ export async function serveHttp(
         const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
         server
           .connect(transport)
-          .then(() => transport.handleRequest(req, res))
+          .then(() => {
+            // The client may have aborted (or the server begun shutting down)
+            // while connect() was in flight — its `close` already scheduled the
+            // teardown below. Don't hand the request to a transport we just
+            // closed: that would surface a spurious error through onServerError
+            // for a request whose response is already gone.
+            if (res.closed || res.destroyed) return;
+            return transport.handleRequest(req, res);
+          })
           .catch(respondWithError(res, options.onServerError));
         // On response completion (success OR reset by the client), release the
         // per-request instance so nothing pins memory between requests.
