@@ -14,6 +14,16 @@ export type AgentToolUpdateCallback<TDetails = unknown> = (update: {
   details?: Partial<TDetails>;
 }) => void;
 
+// Mirrors MCP's ToolAnnotations. Every field is a hint about the tool's
+// behaviour, not a guarantee — clients must not rely on them for safety.
+export interface ToolAnnotations {
+  title?: string;
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+  idempotentHint?: boolean;
+  openWorldHint?: boolean;
+}
+
 // Structural subset of OpenClaw's AnyAgentTool — no runtime dependency on
 // openclaw itself. `parameters` is already JSON Schema (true of TypeBox
 // output). execute()'s signature matches AnyAgentTool's exactly so real tool
@@ -22,6 +32,7 @@ export interface BridgeableTool<TParams = unknown, TDetails = unknown> {
   name: string;
   description: string;
   parameters: Record<string, unknown>;
+  annotations?: ToolAnnotations;
   execute(
     toolCallId: string,
     params: TParams,
