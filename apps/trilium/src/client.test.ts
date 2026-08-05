@@ -81,4 +81,47 @@ describe("createTriliumClient", () => {
     expect(result.error).toBeUndefined();
     expect(result.data).toBe("<p>hello</p>");
   });
+
+  // Same regression as apps/paperless-ngx: a bare "fetch failed" escaping
+  // the semantic sync pass named neither host nor endpoint.
+  it("names the endpoint and the underlying cause when the connection fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed", {
+          cause: new Error("connect ECONNREFUSED 10.0.0.5:8080"),
+        });
+      }),
+    );
+
+    const client = createTriliumClient({
+      baseUrl: "https://trilium.example.com",
+      apiToken: "test-token",
+    });
+
+    await expect(client.GET("/notes", { params: { query: { search: "x" } } })).rejects.toThrow(
+      "trilium ETAPI unreachable (https://trilium.example.com/etapi/notes): " +
+        "connect ECONNREFUSED 10.0.0.5:8080",
+    );
+  });
+
+  it("names the endpoint when the request times out", async () => {
+    const timeout = new Error("The operation was aborted due to timeout");
+    timeout.name = "TimeoutError";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw timeout;
+      }),
+    );
+
+    const client = createTriliumClient({
+      baseUrl: "https://trilium.example.com",
+      apiToken: "test-token",
+    });
+
+    await expect(client.GET("/notes", { params: { query: { search: "x" } } })).rejects.toThrow(
+      /trilium ETAPI timed out after 30000ms \(https:\/\/trilium\.example\.com\/etapi\/notes\)/,
+    );
+  });
 });
