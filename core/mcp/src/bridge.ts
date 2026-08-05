@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { BridgeableTool } from "./index.js";
 
@@ -8,16 +8,23 @@ export interface ServerInfo {
   version: string;
 }
 
-// Builds an MCP Server exposing `tools` unmodified — parameters (already
-// JSON Schema, true of TypeBox output) map straight to inputSchema, and
-// execute()'s {content, details} maps to CallToolResult.content.
-// `details` is intentionally dropped rather than surfaced as
-// structuredContent: MCP requires that to match a declared outputSchema,
-// which BridgeableTool doesn't carry.
-export function createMcpServer(tools: BridgeableTool[], serverInfo: ServerInfo): Server {
-  const server = new Server(serverInfo, { capabilities: { tools: {} } });
+// NOTE: bridge output is the official high-level `McpServer`, *not* the
+// low-level `Server` this package used to hand-wire with setRequestHandler.
+// The tools themselves are still registered at the protocol layer (via the
+// McpServer's underlying Server) rather than through McpServer.registerTool:
+// that high-level API is built around Zod schemas and re-serializes the
+// inputSchema it's given (adding `$schema`, normalizing types, etc.), which
+// would corrupt the arbitrary TypeBox JSON Schema that BridgeableTool carries
+// and that this package exists to pass through unchanged. Protocol-level
+// registration keeps `parameters` and `annotations` byte-for-byte identical
+// to what the tool factory declared, at the cost of not exercising McpServer's
+// regex/validation sugar (which is unnecessary here — tools already carry
+// JSON Schema).
+export function createMcpServer(tools: BridgeableTool[], serverInfo: ServerInfo): McpServer {
+  const server = new McpServer(serverInfo, { capabilities: { tools: {} } });
+  const core = server.server;
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  core.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
@@ -26,7 +33,7 @@ export function createMcpServer(tools: BridgeableTool[], serverInfo: ServerInfo)
     })),
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  core.setRequestHandler(CallToolRequestSchema, async (request) => {
     const tool = tools.find((t) => t.name === request.params.name);
     if (!tool) {
       return {

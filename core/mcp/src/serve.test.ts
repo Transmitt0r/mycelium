@@ -17,8 +17,10 @@ function echoTool(): BridgeableTool<{ text: string }> {
   };
 }
 
-// Streamable HTTP mounts one transport (and one Server) per session, so serveHttp
-// takes a factory that returns a fresh Server for every new session.
+// STATELESS Streamable HTTP (2026-07-28 spec revision): there is no protocol-level
+// session, so each HTTP request is self-contained and gets a fresh McpServer +
+// stateless transport. serveHttp takes a factory that returns a fresh server per
+// request (the SDK throws if a stateless transport is reused across requests).
 function makeServer() {
   return createMcpServer([echoTool()], { name: "http-test-server", version: "0.0.0" });
 }
@@ -35,7 +37,7 @@ afterEach(async () => {
   await Promise.all(handles.splice(0).map((h) => h.close()));
 });
 
-describe("serveHttp (real Streamable HTTP round-trip)", () => {
+describe("serveHttp (stateless Streamable HTTP round-trip)", () => {
   test("a real HTTP client can list and call tools over the wire", async () => {
     // port 0 -> OS-assigned free port, read back from the returned handle.
     const handle = await serveHttp(makeServer, { port: 0 });
@@ -134,7 +136,7 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
     // A non-Basic scheme is rejected even with correct credentials embedded.
     expect(
       await statusAt(handle, {
-        authorization: `Bearer ${Buffer.from("user:pass").toString("base64")}`,
+        authorization: `Digest ${Buffer.from("user:pass").toString("base64")}`,
       }),
     ).toBe(401);
     // Credentials that aren't valid base64 are rejected, not treated as a match.
@@ -292,16 +294,16 @@ describe("serveHttp (real Streamable HTTP round-trip)", () => {
   });
 });
 
-describe("serveHttp multi-session", () => {
-  test("two clients can connect and call tools independently (one transport per session)", async () => {
+describe("serveHttp stateless multi-client / reconnect", () => {
+  test("two independent clients can connect and call tools (no shared server state)", async () => {
     const handle = await serveHttp(makeServer, { port: 0 });
     handles.push(handle);
 
-    // Client A establishes its own session.
+    // Client A — its own initialize + tools/list on independent requests.
     const clientA = await connectClient(handle.port);
     expect((await clientA.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
 
-    // Client B initializes a second, independent session on the same endpoint.
+    // Client B — fully independent, no session to collide with A.
     const clientB = await connectClient(handle.port);
     expect((await clientB.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
 
@@ -314,7 +316,7 @@ describe("serveHttp multi-session", () => {
     await clientB.close();
   });
 
-  test("a new session can be established after a previous one closed (reconnect)", async () => {
+  test("a client can reconnect after a previous client closed (stateless has no session state)", async () => {
     const handle = await serveHttp(makeServer, { port: 0 });
     handles.push(handle);
 
@@ -323,142 +325,45 @@ describe("serveHttp multi-session", () => {
     expect((r1.content as Array<{ type: string; text: string }>)[0]?.text).toBe("first");
     await client.close();
 
-    // A fresh client transport gets a new session-id on the same endpoint.
+    // A fresh client on the same endpoint works immediately — each request is
+    // independent, so there is no stale session slot to wait on.
     const client2 = await connectClient(handle.port);
     const r2 = await client2.callTool({ name: "echo", arguments: { text: "second" } });
     expect((r2.content as Array<{ type: string; text: string }>)[0]?.text).toBe("second");
     await client2.close();
   });
 
-  test("an unknown Mcp-Session-Id is rejected with 404, not treated as a new session", async () => {
+  test("interleaved clients on the same endpoint don't interfere", async () => {
     const handle = await serveHttp(makeServer, { port: 0 });
     handles.push(handle);
 
-    // Establish one real session so the server is up.
-    const client = await connectClient(handle.port);
-    await client.close();
-
-    // A request carrying a session id the server has never seen gets a 404.
-    const response = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        "mcp-session-id": "does-not-exist",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/list",
-      }),
-    });
-    expect(response.status).toBe(404);
-  });
-
-  test("a maxSessions cap rejects additional sessions with 503", async () => {
-    // Cap of 1: the first client initializes fine; a second cannot.
-    const handle = await serveHttp(makeServer, { port: 0, maxSessions: 1 });
-    handles.push(handle);
-
     const clientA = await connectClient(handle.port);
-    expect((await clientA.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+    const clientB = await connectClient(handle.port);
 
-    // Second session attempt is refused.
-    await expect(connectClient(handle.port)).rejects.toThrow();
+    // Fire calls from both at once; each must round-trip its own payload.
+    const [ra, rb] = await Promise.all([
+      clientA.callTool({ name: "echo", arguments: { text: "AAA" } }),
+      clientB.callTool({ name: "echo", arguments: { text: "BBB" } }),
+    ]);
+    expect((ra.content as Array<{ type: string; text: string }>)[0]?.text).toBe("AAA");
+    expect((rb.content as Array<{ type: string; text: string }>)[0]?.text).toBe("BBB");
 
     await clientA.close();
-  });
-
-  test("terminating a session explicitly (DELETE) releases its slot under the cap (reconnect)", async () => {
-    // Cap of 1: A fills the only slot; spec-conformant teardown (DELETE) must free
-    // that slot so a fresh session is admitted again. Catches slot-accounting drift.
-    // NB a bare client.close() only aborts the local stream and sends no DELETE, so
-    // it does NOT release the slot immediately — cleanup of such abandoned sessions
-    // relies on the idle reaper (sessionIdleTimeoutMs), not on the DELETE path.
-    const handle = await serveHttp(makeServer, { port: 0, maxSessions: 1 });
-    handles.push(handle);
-
-    const clientA = new Client({ name: "http-test-client", version: "0.0.0" });
-    const transportA = new StreamableHTTPClientTransport(
-      new URL(`http://127.0.0.1:${handle.port}/mcp`),
-    );
-    await clientA.connect(transportA);
-    expect((await clientA.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
-
-    // The client signals session end via DELETE; the server frees the slot.
-    await transportA.terminateSession();
-
-    // The freed slot must admit a brand-new session.
-    const clientB = await connectClient(handle.port);
-    expect((await clientB.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
     await clientB.close();
   });
 
-  test("maxSessions must be a positive integer at startup (fail-closed)", async () => {
-    // NaN/zero/negative/fractional caps would silently disarm or invert the DoS
-    // guard, so they are rejected up front like other misconfigurations.
-    await expect(serveHttp(makeServer, { port: 0, maxSessions: NaN })).rejects.toThrow();
-    await expect(serveHttp(makeServer, { port: 0, maxSessions: 0 })).rejects.toThrow();
-    await expect(serveHttp(makeServer, { port: 0, maxSessions: -3 })).rejects.toThrow();
-    await expect(serveHttp(makeServer, { port: 0, maxSessions: 2.5 })).rejects.toThrow();
-  });
-
-  test("sessionIdleTimeoutMs must be a non-negative integer at startup (fail-closed)", async () => {
-    await expect(serveHttp(makeServer, { port: 0, sessionIdleTimeoutMs: NaN })).rejects.toThrow();
-    await expect(serveHttp(makeServer, { port: 0, sessionIdleTimeoutMs: -1 })).rejects.toThrow();
-    await expect(serveHttp(makeServer, { port: 0, sessionIdleTimeoutMs: 2.5 })).rejects.toThrow();
-  });
-
-  test("an idle, abandoned session is reaped after sessionIdleTimeoutMs, releasing its slot", async () => {
-    // Cap of 1 + a short reaper timeout: A fills the slot and is then abandoned
-    // (its stream closes without DELETE); the reaper must close it so a fresh
-    // session fits again. A session whose SSE stream is still open is treated as
-    // alive and is NOT reaped.
-    const handle = await serveHttp(makeServer, {
-      port: 0,
-      maxSessions: 1,
-      sessionIdleTimeoutMs: 100,
-    });
+  test("a non-POST method is rejected with 405 (stateless is POST-only)", async () => {
+    const handle = await serveHttp(makeServer, { port: 0 });
     handles.push(handle);
 
-    const clientA = await connectClient(handle.port);
-    expect((await clientA.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
-
-    // Abandon A: close() aborts the local stream WITHOUT sending DELETE, so the
-    // session stays registered but its connection (and SSE stream) is gone.
-    await clientA.close();
-
-    // Wait well past the idle timeout so the sweeper (every ≤100ms) reaps A.
-    await new Promise((r) => setTimeout(r, 600));
-
-    // The abandoned slot must be freed, admitting a brand-new session.
-    const clientB = await connectClient(handle.port);
-    expect((await clientB.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
-    await clientB.close();
+    // GET and DELETE carry no meaning without a session/SSE stream in stateless mode.
+    expect(await fetch(`http://127.0.0.1:${handle.port}/mcp`)).toHaveProperty("status", 405);
+    const del = await fetch(`http://127.0.0.1:${handle.port}/mcp`, { method: "DELETE" });
+    expect(del.status).toBe(405);
   });
 
-  test("a session with an open SSE stream is NOT reaped while idle", async () => {
-    // If the reaper wrongly harvested a live (quiet) session, a subsequent tool
-    // call would 404. It must survive past the idle timeout because its stream
-    // is still open.
-    const handle = await serveHttp(makeServer, { port: 0, sessionIdleTimeoutMs: 100 });
-    handles.push(handle);
-
-    const client = await connectClient(handle.port);
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
-
-    // Wait well past the idle timeout with the SSE stream held open.
-    await new Promise((r) => setTimeout(r, 500));
-
-    // The session is still alive and usable.
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
-    await client.close();
-  });
-
-  test("a request that never initializes a session releases its reserved slot", async () => {
-    // A garbage POST (no mcp-session-id, unparseable body) never initializes. It
-    // must not pin the single slot: after it settles, a real client fits again.
-    const handle = await serveHttp(makeServer, { port: 0, maxSessions: 1 });
+  test("a malformed request body is handled without wedging the endpoint", async () => {
+    const handle = await serveHttp(makeServer, { port: 0 });
     handles.push(handle);
 
     const bad = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
@@ -469,13 +374,80 @@ describe("serveHttp multi-session", () => {
       },
       body: "this is not json",
     });
-    // It was accepted (slot was free), handled, and its slot released — not capped.
-    expect(bad.status).not.toBe(503);
+    // Unparseable JSON — the stateless transport answers 400 (Parse error), not
+    // a session-cap 503 (there is no session cap anymore).
+    expect(bad.status).toBe(400);
 
-    // The freed slot must admit a real client.
+    // The endpoint still serves a real client right after.
     const client = await connectClient(handle.port);
     expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
     await client.close();
+  });
+});
+
+describe("serveHttp stateless spec invariants", () => {
+  test("responses carry no Mcp-Session-Id header (no server session state)", async () => {
+    const handle = await serveHttp(makeServer, { port: 0 });
+    handles.push(handle);
+
+    const response = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "http-test-client", version: "0.0.0" },
+        },
+      }),
+    });
+    expect(response.headers.get("mcp-session-id")).toBeNull();
+  });
+
+  test("a client-sent Mcp-Session-Id is ignored, not treated as a session (no 404)", async () => {
+    // The exact opposite of the old stateful 404 test: in stateless mode there is
+    // no session registry, so a bogus session-id is simply absent state and must
+    // not be rejected — the request is served normally.
+    const handle = await serveHttp(makeServer, { port: 0 });
+    handles.push(handle);
+
+    const client = new Client({ name: "http-test-client", version: "0.0.0" });
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${handle.port}/mcp`),
+      { requestInit: { headers: { "mcp-session-id": "bogus-session" } } },
+    );
+    await client.connect(transport);
+
+    const { tools } = await client.listTools();
+    expect(tools.map((t) => t.name)).toEqual(["echo"]);
+
+    const result = await client.callTool({
+      name: "echo",
+      arguments: { text: "no session needed" },
+    });
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.text).toBe("no session needed");
+
+    await client.close();
+  });
+
+  test("405 responses advertise the allowed methods via the Allow header", async () => {
+    const handle = await serveHttp(makeServer, { port: 0 });
+    handles.push(handle);
+
+    const get = await fetch(`http://127.0.0.1:${handle.port}/mcp`);
+    expect(get.status).toBe(405);
+    expect(get.headers.get("allow")).toBe("POST");
+
+    const del = await fetch(`http://127.0.0.1:${handle.port}/mcp`, { method: "DELETE" });
+    expect(del.status).toBe(405);
+    expect(del.headers.get("allow")).toBe("POST");
   });
 });
 
