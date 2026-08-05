@@ -290,6 +290,11 @@ export async function serveHttp(
   // still-open response stream (SSE). `?? 0` keeps an entry whose stamp is
   // somehow missing reapable rather than pinning its slot forever.
   function trackOpen(sessionId: string, res: ServerResponse): void {
+    if (res.closed || res.destroyed) {
+      // Response already gone (abort raced the registration) — the close handler
+      // below would never fire, so don't leave a phantom open-stream count.
+      return;
+    }
     openResponses.set(sessionId, (openResponses.get(sessionId) ?? 0) + 1);
     res.once("close", () => {
       const n = openResponses.get(sessionId);
@@ -390,15 +395,22 @@ export async function serveHttp(
         // initialize it assigns the session id and registers itself. If it turns
         // out not to be (malformed JSON-RPC, stale id without a header, etc.) the
         // transport is never registered — tear it down so it can't leak.
+        let released = false;
+        // Declared before the transport so onclose (and the release checks below)
+        // can read them; `server` stays unassigned until the factory runs, which
+        // onclose must read as undefined rather than trip a TDZ ReferenceError.
+        let server!: Server;
         let transport: StreamableHTTPServerTransport;
         try {
           transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: (id) => {
-              // A session that initializes as the server starts draining must not
-              // register on a dying listener (it would be missed by transports.clear()
-              // in close() and leak both the transport and its Server) — close it.
-              if (closing) {
+              // Never register on a dying listener or a transport that was already
+              // released (e.g. an abort race where the client dropped the request
+              // mid-parse: onclose fired with sessionId still undefined). Registering
+              // a dead transport would leak it in the maps — a later close() is a
+              // released-guard no-op and the reaper's open-stream rule would pin it.
+              if (closing || released) {
                 void transport.close().catch(() => {});
                 return;
               }
@@ -426,11 +438,6 @@ export async function serveHttp(
         // If a future SDK stops chaining, sessions-- would never run and the cap would
         // silently stick at maxSessions — the DELETE-reconnect and idle-reap tests in
         // serve.test.ts guard specifically against that regression.
-        let released = false;
-        // Declared before onclose: a synchronous teardown in the factory-fail path
-        // (`transport.close()` while `server` is still unassigned) must read the
-        // binding as undefined rather than trip a TDZ ReferenceError.
-        let server!: Server;
         transport.onclose = () => {
           if (released) return;
           released = true;
