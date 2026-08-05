@@ -134,10 +134,18 @@ async function main(): Promise<void> {
   const transportConfig = readTransportConfig(process.env);
   let httpHandle: HttpServerHandle | undefined;
   if (transportConfig.transport === "http") {
-    httpHandle = await serveHttp(server, {
-      port: transportConfig.port,
-      path: transportConfig.path,
-    });
+    // Streamable HTTP mounts one Server per session, so hand over a factory.
+    httpHandle = await serveHttp(
+      () =>
+        createMcpServer(tools as unknown as BridgeableTool[], {
+          name: "trilium",
+          version: packageVersion(),
+        }),
+      {
+        port: transportConfig.port,
+        path: transportConfig.path,
+      },
+    );
     logger.info?.(`listening on :${httpHandle.port}${transportConfig.path ?? "/mcp"}`);
   } else {
     await serveStdio(server);

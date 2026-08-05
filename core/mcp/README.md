@@ -13,18 +13,23 @@ between the two — not a reimplementation of either.
 ```ts
 import { createMcpServer, serveStdio, serveHttp } from "@transmitt0r/mycelium-mcp";
 
-const server = createMcpServer(myTools, { name: "my-plugin", version: "1.0.0" });
+const tools = [...];
 
 // stdio — for MCP clients that spawn a subprocess
-await serveStdio(server);
+await serveStdio(createMcpServer(tools, { name: "my-plugin", version: "1.0.0" }));
 
-// or Streamable HTTP — for anything else
-const handle = await serveHttp(server, {
-  port: 3000,
-  // host: "127.0.0.1",              // bind a specific interface (default: loopback)
-  // path: "/mcp",                   // request path (default: /mcp)
-  // auth: { bearerToken: "secret" } // or { basic: { username, password } }
-});
+// or Streamable HTTP — for anything else. Streamable HTTP mounts one transport
+// (and one Server) per session, so serveHttp takes a *factory* that returns a
+// fresh Server for every new client session.
+const handle = await serveHttp(
+  () => createMcpServer(tools, { name: "my-plugin", version: "1.0.0" }),
+  {
+    port: 3000,
+    // host: "127.0.0.1",              // bind a specific interface (default: loopback)
+    // path: "/mcp",                   // request path (default: /mcp)
+    // auth: { bearerToken: "secret" } // or { basic: { username, password } }
+  },
+);
 // handle.close() to shut down
 ```
 

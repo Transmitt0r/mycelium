@@ -1,5 +1,9 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { createServer as createHttpServer, type IncomingMessage } from "node:http";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -9,9 +13,9 @@ export async function serveStdio(server: Server): Promise<void> {
 }
 
 export interface ServeHttpAuth {
-  /** Require `Authorization: Bearer <token>` on every request. */
+  /** Require `Authorization: Bearer *** on every request. */
   bearerToken?: string;
-  /** Require `Authorization: Basic base64(username:password)` on every request. */
+  /** Require `Authorization: Basic base64...rd)` on every request. */
   basic?: { username: string; password: string };
 }
 
@@ -217,15 +221,19 @@ function originAllowed(
   return allowedOrigins.includes(originHeader.toLowerCase());
 }
 
+// Streamable HTTP mounts one transport per session, and an @modelcontextprotocol
+// Server instance can only own a single transport (Protocol.connect throws on a
+// second connect). So serveHttp takes a *factory* rather than a server instance:
+// each incoming session that initializes gets its own fresh Server + transport,
+// keyed by the Mcp-Session-Id the client echoes back on subsequent requests.
 export async function serveHttp(
-  server: Server,
+  createServer: () => Server,
   options: ServeHttpOptions,
 ): Promise<HttpServerHandle> {
   const path = options.path ?? "/mcp";
   validateAuth(options.auth);
   validateHostLists(options);
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
-  await server.connect(transport);
+  const transports = new Map<string, StreamableHTTPServerTransport>();
 
   // Fail-safe default: bind loopback only. MCP servers execute arbitrary
   // configured tools, so exposing one (e.g. behind a reverse proxy or on a LAN)
@@ -258,11 +266,32 @@ export async function serveHttp(
         res.writeHead(404).end();
         return;
       }
-      transport.handleRequest(req, res).catch((err: unknown) => {
-        if (!res.headersSent) res.writeHead(500);
-        res.end(INTERNAL_ERROR);
-        options.onServerError?.(err instanceof Error ? err : new Error(String(err)));
+
+      const sessionId = req.headers["mcp-session-id"]?.toString();
+      const existing = sessionId ? transports.get(sessionId) : undefined;
+      if (existing) {
+        // Established session — route straight into its transport.
+        existing.handleRequest(req, res).catch(respondWithError(res, options.onServerError));
+        return;
+      }
+
+      // No known session. Let a fresh per-session transport decide: if this turns
+      // out to be an initialize, it assigns the session id and registers itself.
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (id) => {
+          transports.set(id, transport);
+        },
       });
+      transport.onclose = () => {
+        const id = transport.sessionId;
+        if (id) transports.delete(id);
+      };
+      const server = createServer();
+      void server
+        .connect(transport)
+        .then(() => transport.handleRequest(req, res))
+        .catch(respondWithError(res, options.onServerError));
     } catch (err) {
       // Never let a malformed request crash the process, and never leak internals.
       if (!res.headersSent) res.writeHead(500);
@@ -272,15 +301,15 @@ export async function serveHttp(
   });
 
   // Surface bind failures (EADDRINUSE, EADDRNOTAVAIL) instead of hanging the
-  // promise on an unhandled 'error' event, and clean up the connected transport
-  // and socket so a retry starts from a clean state.
+  // promise on an unhandled 'error' event, and clean up connected transports
+  // and sockets so a retry starts from a clean state.
   await new Promise<void>((resolve, reject) => {
     const onError = (err: Error) => {
       httpServer.removeListener("error", onError);
-      // Best-effort cleanup: never throw from a failed bind, and disconnect the
-      // transport so a retry on the same Server starts clean. close() with a
-      // callback is safe even when the server never reached 'listening'.
-      transport.close().catch(() => {});
+      // Best-effort cleanup: never throw from a failed bind, and disconnect any
+      // transports so a retry on the same factory starts clean.
+      Promise.allSettled([...transports.values()].map((t) => t.close())); // eslint-disable-line @typescript-eslint/no-floating-promises
+      transports.clear();
       httpServer.close(() => {});
       reject(err);
     };
@@ -302,10 +331,19 @@ export async function serveHttp(
     port: actualPort,
     host: boundHost,
     async close() {
-      await transport.close();
+      await Promise.allSettled([...transports.values()].map((t) => t.close()));
+      transports.clear();
       await new Promise<void>((resolve, reject) =>
         httpServer.close((err) => (err ? reject(err) : resolve())),
       );
     },
+  };
+}
+
+function respondWithError(res: ServerResponse, onServerError: ((err: Error) => void) | undefined) {
+  return (err: unknown) => {
+    if (!res.headersSent) res.writeHead(500);
+    res.end(INTERNAL_ERROR);
+    onServerError?.(err instanceof Error ? err : new Error(String(err)));
   };
 }
