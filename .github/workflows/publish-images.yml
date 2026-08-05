@@ -17,13 +17,12 @@ permissions:
   contents: read
   packages: write # to push images to GHCR
 
-env:
-  REGISTRY: ghcr.io
-  REGISTRY_IMAGE_BASE: ghcr.io/${{ github.repository }}
-
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Drop the non-matching matrix row before it starts: a pushed tag only
+    # names one app, so a leaky guard in a shell step is unnecessary.
+    if: startsWith(github.ref_name, matrix.package)
     strategy:
       # Each app releases on its own tag; one must not block the other.
       fail-fast: false
@@ -36,51 +35,45 @@ jobs:
             package: '@transmitt0r/openclaw-plugin-paperless-ngx'
             image: mycelium-paperless-ngx-mcp
     steps:
-      - uses: actions/checkout@v7
-
-      # The pushed tag only names one app; skip this matrix row if it
-      # belongs to the other one.
-      - name: Check tag belongs to this app
-        id: appcheck
-        run: |
-          TAG="${{ github.ref_name }}"
-          PREFIX="${{ matrix.package }}-"
-          if [[ "$TAG" == "$PREFIX"* ]]; then
-            echo "match=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "match=false" >> "$GITHUB_OUTPUT"
-          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Docker Buildx
-        if: steps.appcheck.outputs.match == 'true'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Login to GHCR
-        if: steps.appcheck.outputs.match == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Derive version + image tags. github.ref_name / github.repository are
+      # passed in via env (not interpolated into the shell body) to avoid
+      # script injection from attacker-controlled tag names. GHCR requires
+      # lowercase image names, so lowercase the owner/repo path. "latest" is
+      # only added for stable (non-prerelease) versions so a tag like
+      # v2.0.0-rc.1 never overwrites the stable latest.
       - name: Compute image tags
-        if: steps.appcheck.outputs.match == 'true'
         id: meta
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          # Strip the per-app package prefix to get "v1.1.0", then derive
-          # the version tags and a floating "latest" for convenience.
-          TAG="${{ github.ref_name }}"
-          VERSION="${TAG#${{ matrix.package }}-}"
-          IMAGE="${{ env.REGISTRY_IMAGE_BASE }}/${{ matrix.image }}"
+          PREFIX="${{ matrix.package }}-"
+          VERSION="${REF_NAME#$PREFIX}"
+          IMAGE="ghcr.io/${REPOSITORY,,}/${{ matrix.image }}"
+          TAGS="${IMAGE}:${VERSION},${IMAGE}:${VERSION#v}"
+          if [[ "$VERSION" != *-* ]]; then
+            TAGS="${TAGS},${IMAGE}:latest"
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-          echo "tags=$IMAGE:${VERSION},$IMAGE:${VERSION#v},$IMAGE:latest" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
       # Context is the repo root, not the app directory: the image needs its
       # @transmitt0r/mycelium-* workspace siblings (see both Dockerfiles).
       - name: Build and push
-        if: steps.appcheck.outputs.match == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile
