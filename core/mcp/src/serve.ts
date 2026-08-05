@@ -42,6 +42,13 @@ export interface ServeHttpOptions {
   allowedOrigins?: string[];
   /** Optional handler for server errors after a successful bind (e.g. to log). */
   onServerError?: (err: Error) => void;
+  /**
+   * Upper bound on simultaneously-open sessions. New sessions beyond this cap
+   * are rejected with 503 (Service Unavailable). Guards against unbounded
+   * memory growth from a misbehaving client opening endless sessions.
+   * Defaults to 100.
+   */
+  maxSessions?: number;
 }
 
 export interface HttpServerHandle {
@@ -231,6 +238,7 @@ export async function serveHttp(
   options: ServeHttpOptions,
 ): Promise<HttpServerHandle> {
   const path = options.path ?? "/mcp";
+  const maxSessions = options.maxSessions ?? 100;
   validateAuth(options.auth);
   validateHostLists(options);
   const transports = new Map<string, StreamableHTTPServerTransport>();
@@ -268,15 +276,29 @@ export async function serveHttp(
       }
 
       const sessionId = req.headers["mcp-session-id"]?.toString();
-      const existing = sessionId ? transports.get(sessionId) : undefined;
-      if (existing) {
-        // Established session — route straight into its transport.
+      if (sessionId !== undefined) {
+        // Client presented a session id — it must map to a live session.
+        const existing = transports.get(sessionId);
+        if (!existing) {
+          // Unknown/expired session id: reject per spec, never spawn a new one.
+          res.writeHead(404).end();
+          return;
+        }
         existing.handleRequest(req, res).catch(respondWithError(res, options.onServerError));
         return;
       }
 
-      // No known session. Let a fresh per-session transport decide: if this turns
-      // out to be an initialize, it assigns the session id and registers itself.
+      // No session id → a fresh (initialize) session is being attempted. Enforce
+      // the concurrency cap so a misbehaving client can't exhaust memory.
+      if (transports.size >= maxSessions) {
+        res.writeHead(503).end();
+        return;
+      }
+
+      // Let a fresh per-session transport decide: if this request is a valid
+      // initialize it assigns the session id and registers itself. If it turns
+      // out not to be (malformed JSON-RPC, stale id without a header, etc.) the
+      // transport is never registered — tear it down so it can't leak.
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
@@ -291,7 +313,14 @@ export async function serveHttp(
       void server
         .connect(transport)
         .then(() => transport.handleRequest(req, res))
-        .catch(respondWithError(res, options.onServerError));
+        .catch(respondWithError(res, options.onServerError))
+        .finally(() => {
+          // Leak guard: a request that never initialized a session was never
+          // registered (so onclose never fired) and never closed. Clean it up.
+          if (transport.sessionId === undefined) {
+            return transport.close().catch(() => {});
+          }
+        });
     } catch (err) {
       // Never let a malformed request crash the process, and never leak internals.
       if (!res.headersSent) res.writeHead(500);

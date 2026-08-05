@@ -329,6 +329,45 @@ describe("serveHttp multi-session", () => {
     expect((r2.content as Array<{ type: string; text: string }>)[0]?.text).toBe("second");
     await client2.close();
   });
+
+  test("an unknown Mcp-Session-Id is rejected with 404, not treated as a new session", async () => {
+    const handle = await serveHttp(makeServer, { port: 0 });
+    handles.push(handle);
+
+    // Establish one real session so the server is up.
+    const client = await connectClient(handle.port);
+    await client.close();
+
+    // A request carrying a session id the server has never seen gets a 404.
+    const response = await fetch(`http://127.0.0.1:${handle.port}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-session-id": "does-not-exist",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+      }),
+    });
+    expect(response.status).toBe(404);
+  });
+
+  test("a maxSessions cap rejects additional sessions with 503", async () => {
+    // Cap of 1: the first client initializes fine; a second cannot.
+    const handle = await serveHttp(makeServer, { port: 0, maxSessions: 1 });
+    handles.push(handle);
+
+    const clientA = await connectClient(handle.port);
+    expect((await clientA.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+
+    // Second session attempt is refused.
+    await expect(connectClient(handle.port)).rejects.toThrow();
+
+    await clientA.close();
+  });
 });
 
 // Send a request with an arbitrary Host/Origin header (http.request allows
