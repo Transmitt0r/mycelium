@@ -82,7 +82,11 @@ jobs:
   # onepassword app has none.
   publish-images:
     needs: release
-    if: ${{ success() }}
+    # !cancelled() (not success()): a single failing release leg -- e.g.
+    # onepassword, which publishes no image -- must not skip publishing for
+    # the apps whose release DID succeed. Each matrix row is gated in the
+    # meta step below, so partial publishing is safe.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     strategy:
       # Each app's tag is resolved and gated independently in the meta step;
@@ -126,7 +130,10 @@ jobs:
           # exactly where prereleases get mis-ranked, and this is precisely
           # the "did this run release the app" semantics we want. --points-at
           # dereferences annotated tags correctly, so no ^{commit} needed.
-          TAG=$(git tag --points-at "$TRIGGER_SHA" "${PREFIX}v*" | head -1)
+          # Version-sort (ascending, take last) so that if several tags for
+          # the same app happen to sit on one commit, the newest wins instead
+          # of a lexical oddity like v1.10.0 < v1.9.0.
+          TAG=$(git tag --points-at "$TRIGGER_SHA" "${PREFIX}v*" --sort=v:refname | tail -1)
           if [[ -z "$TAG" ]]; then
             echo "No release for ${{ matrix.app }} at this commit; skipping."
             echo "publish=false" >> "$GITHUB_OUTPUT"
