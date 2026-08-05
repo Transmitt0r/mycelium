@@ -24,10 +24,8 @@ Hardening (from skeptical review):
 - A `maxSessions` option (default 100) caps simultaneous sessions, rejecting further ones
   with 503 to bound memory growth from a misbehaving client. The cap (validated as a
   positive integer at startup) is enforced atomically against parallel `initialize` requests.
-- Known limitation: a slot is only released when the client explicitly terminates its
-  session, which in Streamable HTTP means sending a `DELETE` (the SDK exposes this as
-  `transport.terminateSession()`); a bare `client.close()` only aborts the local stream and
-  sends no `DELETE` (idle-reaping is connectionless HTTP's well-known blind spot). A session
-  that is never `DELETE`d therefore holds its slot (and its `Server` instance) until the
-  process exits or `handle.close()` is called. The `maxSessions` cap bounds the damage but
-  is not a substitute for an idle TTL.
+- An idle reaper (`sessionIdleTimeoutMs`, default 15 min, `0` disables) closes sessions that
+  go silent, so a client that initializes and then disconnects without sending `DELETE` (a
+  bare `client.close()` only aborts the local stream and sends no `DELETE`) can't pin a slot
+  and exhaust `maxSessions` forever. Explicit `DELETE` (the SDK's `transport.terminateSession()`)
+  still releases the slot immediately.

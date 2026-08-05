@@ -402,6 +402,34 @@ describe("serveHttp multi-session", () => {
     await expect(serveHttp(makeServer, { port: 0, maxSessions: -3 })).rejects.toThrow();
     await expect(serveHttp(makeServer, { port: 0, maxSessions: 2.5 })).rejects.toThrow();
   });
+
+  test("sessionIdleTimeoutMs must be a non-negative integer at startup (fail-closed)", async () => {
+    await expect(serveHttp(makeServer, { port: 0, sessionIdleTimeoutMs: NaN })).rejects.toThrow();
+    await expect(serveHttp(makeServer, { port: 0, sessionIdleTimeoutMs: -1 })).rejects.toThrow();
+    await expect(serveHttp(makeServer, { port: 0, sessionIdleTimeoutMs: 2.5 })).rejects.toThrow();
+  });
+
+  test("an idle session is reaped after sessionIdleTimeoutMs, releasing its slot", async () => {
+    // Cap of 1 + a short reaper timeout: A fills the slot and then goes idle
+    // without DELETE; the reaper must close it so a fresh session fits again.
+    const handle = await serveHttp(makeServer, {
+      port: 0,
+      maxSessions: 1,
+      sessionIdleTimeoutMs: 100,
+    });
+    handles.push(handle);
+
+    const clientA = await connectClient(handle.port);
+    expect((await clientA.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+
+    // Wait well past the idle timeout so the sweeper (every ≤100ms) reaps A.
+    await new Promise((r) => setTimeout(r, 600));
+
+    // The abandoned slot must be freed, admitting a brand-new session.
+    const clientB = await connectClient(handle.port);
+    expect((await clientB.listTools()).tools.map((t) => t.name)).toEqual(["echo"]);
+    await clientB.close();
+  });
 });
 
 // Send a request with an arbitrary Host/Origin header (http.request allows

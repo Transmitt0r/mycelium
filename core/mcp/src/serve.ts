@@ -49,6 +49,15 @@ export interface ServeHttpOptions {
    * Defaults to 100.
    */
   maxSessions?: number;
+  /**
+   * Idle timeout for established sessions, in milliseconds. A session that
+   * receives no request for this long is closed and its slot released, so
+   * abandoned clients can't accumulate and exhaust `maxSessions` forever
+   * (Streamable HTTP sessions only end when the client sends DELETE or the
+   * server reaps them — a bare client close sends no DELETE). Defaults to
+   * 15 minutes; set `0` to disable idle reaping.
+   */
+  sessionIdleTimeoutMs?: number;
 }
 
 export interface HttpServerHandle {
@@ -247,12 +256,38 @@ export async function serveHttp(
   if (!Number.isInteger(maxSessions) || maxSessions < 1) {
     throw new Error("serveHttp: maxSessions must be a positive integer when provided");
   }
+  const sessionIdleTimeoutMs = options.sessionIdleTimeoutMs ?? 15 * 60_000;
+  if (!Number.isInteger(sessionIdleTimeoutMs) || sessionIdleTimeoutMs < 0) {
+    throw new Error("serveHttp: sessionIdleTimeoutMs must be a non-negative integer when provided");
+  }
   const transports = new Map<string, StreamableHTTPServerTransport>();
+  // Per-session last-activity stamp (epoch ms), refreshed on every request a
+  // session receives and fed to the idle reaper so abandoned sessions — which
+  // never send DELETE — are closed instead of pinning a session slot forever.
+  const lastSeen = new Map<string, number>();
   // Synchronously-reserved session count. Unlike `transports.size` (which only
   // updates when an initialize completes, i.e. asynchronously), this is bumped
   // in the same tick a new-session request is accepted, so parallel initialize
   // requests can't all slip past the maxSessions check before any is counted.
   let sessions = 0;
+
+  // Idle reaper: closes sessions that have gone silent, so abandoned clients
+  // (which never send DELETE) can't pin a slot and exhaust `maxSessions` for
+  // good. Sweeps at most once a minute (or the timeout, if it's shorter).
+  let idleTimer: ReturnType<typeof setInterval> | undefined;
+  if (sessionIdleTimeoutMs > 0) {
+    idleTimer = setInterval(sweepIdle, Math.min(sessionIdleTimeoutMs, 60_000));
+    idleTimer.unref?.();
+  }
+  function sweepIdle(): void {
+    const now = Date.now();
+    for (const [id, transport] of transports) {
+      const seen = lastSeen.get(id);
+      if (seen !== undefined && now - seen > sessionIdleTimeoutMs) {
+        void transport.close().catch(() => {});
+      }
+    }
+  }
 
   // Fail-safe default: bind loopback only. MCP servers execute arbitrary
   // configured tools, so exposing one (e.g. behind a reverse proxy or on a LAN)
@@ -287,7 +322,7 @@ export async function serveHttp(
       }
 
       const sessionId = req.headers["mcp-session-id"]?.toString();
-      if (sessionId !== undefined) {
+      if (sessionId !== undefined && sessionId.length > 0) {
         // Client presented a session id — it must map to a live session.
         const existing = transports.get(sessionId);
         if (!existing) {
@@ -295,6 +330,8 @@ export async function serveHttp(
           res.writeHead(404).end();
           return;
         }
+        // Re-arm the idle clock for this session.
+        lastSeen.set(sessionId, Date.now());
         existing.handleRequest(req, res).catch(respondWithError(res, options.onServerError));
         return;
       }
@@ -316,6 +353,7 @@ export async function serveHttp(
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
           transports.set(id, transport);
+          lastSeen.set(id, Date.now());
         },
       });
       // Releasing the reserved slot (and any registered session) is the transport's
@@ -329,7 +367,16 @@ export async function serveHttp(
         released = true;
         sessions--;
         const id = transport.sessionId;
-        if (id) transports.delete(id);
+        if (id) {
+          transports.delete(id);
+          lastSeen.delete(id);
+        }
+        // Best-effort teardown of the per-session Server so any resources the
+        // factory attached (timers, upstream clients, watchers) are released.
+        // Safe to call from within the transport's own onclose: our `released`
+        // guard makes the resulting close() idempotent, and `server` is already
+        // assigned by the time any real session teardown runs.
+        if (server) void server.close().catch(() => {});
       };
       let server: Server;
       try {
@@ -364,6 +411,7 @@ export async function serveHttp(
   await new Promise<void>((resolve, reject) => {
     const onError = (err: Error) => {
       httpServer.removeListener("error", onError);
+      if (idleTimer) clearInterval(idleTimer);
       // Best-effort cleanup: never throw from a failed bind, and disconnect any
       // transports so a retry on the same factory starts clean.
       Promise.allSettled([...transports.values()].map((t) => t.close())); // eslint-disable-line @typescript-eslint/no-floating-promises
@@ -389,6 +437,7 @@ export async function serveHttp(
     port: actualPort,
     host: boundHost,
     async close() {
+      if (idleTimer) clearInterval(idleTimer);
       await Promise.allSettled([...transports.values()].map((t) => t.close()));
       transports.clear();
       await new Promise<void>((resolve, reject) =>
