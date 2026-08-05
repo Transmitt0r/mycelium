@@ -136,10 +136,17 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     strategy:
-      # Each app's image is built/pushed independently.
+      # Each app's image is built/pushed independently. `image` is the GHCR
+      # basename and is DEFINED HERE in the workflow (never read from the
+      # release job's artifact), so third-party release/toolchain code cannot
+      # steer the privileged job into pushing an arbitrary image name/tag.
       fail-fast: false
       matrix:
-        app: [paperless-ngx, trilium]
+        include:
+          - app: paperless-ngx
+            image: mycelium-paperless-ngx-mcp
+          - app: trilium
+            image: mycelium-trilium-mcp
     permissions:
       contents: read # to check out the build context
       packages: write # to push images to GHCR -- and nothing else
@@ -148,24 +155,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Download every app's release-info artifact (each leg uploaded under a
-      # unique name). continue-on-error: if no leg recorded a release (all
-      # failed), there is nothing to download and every meta step will skip
-      # cleanly instead of this job going red.
+      # unique name). No continue-on-error: a real download failure must
+      # surface rather than be mistaken for "nothing to publish". The only
+      # case where nothing matches is when every release leg failed, which is
+      # itself worth surfacing.
       - name: Download release info
-        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: release-info-*
           path: release-info
           merge-multiple: true
 
-      # Read this app's version file (written only if the release leg
-      # succeeded), derive image + tags. The matrix.app and the recorded
-      # version/image (both workflow/dataset-controlled) are read into shell
-      # variables; the repo owner comes in via env. ghcr requires lowercase
-      # image names, so lowercase the owner path. "latest" is only added for
-      # stable (non-prerelease) versions so a v2.0.0-rc.1 tag never
-      # overwrites it.
+      # Read this app's VERSION from its artifact file and validate it hard.
+      # Only the version crosses the trust boundary from the release job; the
+      # image basename comes from the workflow matrix above, and the owner
+      # from env. A malformed version (anything not semver-ish) aborts this
+      # leg instead of being pushed. ghcr requires lowercase image names, so
+      # lowercase the owner path. "latest" is only added for stable
+      # (non-prerelease) versions so a v2.0.0-rc.1 tag never overwrites it.
       - name: Compute image tags
         id: meta
         env:
@@ -173,19 +180,22 @@ jobs:
         run: |
           set -euo pipefail
           INFO="release-info/${{ matrix.app }}.release.json"
-          if [[ ! -f "$INFO" ]]; then
+          VERSION=""
+          if [[ -f "$INFO" ]]; then
+            VERSION=$(jq -r '.version // empty' "$INFO")
+          fi
+          if [[ -z "$VERSION" ]]; then
             echo "No release recorded for ${{ matrix.app }}; skipping."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          VERSION=$(jq -r '.version // empty' "$INFO")
-          IMG_NAME=$(jq -r '.image // empty' "$INFO")
-          if [[ -z "$VERSION" || -z "$IMG_NAME" ]]; then
-            echo "No version recorded for ${{ matrix.app }}; skipping."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Strict semver-check: vX.Y.Z or X.Y.Z with optional prerelease
+          # suffix. Anything else (injection attempt, bad data) fails the leg.
+          if [[ ! "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version '$VERSION' recorded for ${{ matrix.app }}; aborting." >&2
+            exit 1
           fi
-          IMAGE="ghcr.io/${OWNER,,}/${IMG_NAME}"
+          IMAGE="ghcr.io/${OWNER,,}/${{ matrix.image }}"
           TAGS="${IMAGE}:${VERSION},${IMAGE}:${VERSION#v}"
           if [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             TAGS="${TAGS},${IMAGE}:latest"
