@@ -17,9 +17,8 @@ jobs:
       # to release) must not stop the others.
       fail-fast: false
       matrix:
-        # image is the GHCR image basename (lowercase is applied at build
-        # time); onepassword ships no Dockerfile so it gets no image and its
-        # Docker steps are skipped.
+        # image is the GHCR image basename (lowercase applied at build time);
+        # onepassword ships no Dockerfile, so it writes no version file.
         include:
           - app: paperless-ngx
             package: '@transmitt0r/openclaw-plugin-paperless-ngx'
@@ -35,7 +34,9 @@ jobs:
       issues: write # to comment on released issues
       pull-requests: write # to comment on released pull requests
       id-token: write # to enable OIDC for npm trusted publishing/provenance
-      packages: write # to push Docker images to GHCR
+      # NOTE: intentionally NOT packages:write here -- this job runs
+      # third-party release/toolchain code (semantic-release + dependency
+      # lifecycle scripts) and must not be able to push images to GHCR.
 
     steps:
       - uses: actions/checkout@v7
@@ -63,12 +64,8 @@ jobs:
       # Trusted publishing requires npm CLI >=11.5.1; the version bundled
       # with a given Node release can lag behind that, so pin explicitly
       # rather than relying on whatever setup-node happens to install.
-      # Stick to the 11.x line, not @latest: npm 12.0.0 (2026-07-08) changed
-      # `npm pack --json`'s output from a top-level array to an object keyed
-      # by package name, which broke ClawHub CLI v0.23.1's own npm-pack
-      # invocation ("npm pack did not return a tarball filename" -- it reads
-      # `npmOutput[0]?.filename`, confirmed by reading ClawHub's own source).
-      # >=11.5.1 already satisfies the trusted-publishing requirement.
+      # Stick to the 11.x line, not @latest (see AGENTS.md: npm 12 changed
+      # `npm pack --json` output and broke ClawHub CLI v0.23.1).
       - run: npm install -g npm@^11
 
       # semantic-release-monorepo (see apps/${{ matrix.app }}/.releaserc.json's
@@ -77,10 +74,9 @@ jobs:
       # (all three apps + core/tools share one git log since the
       # git-subtree merge) only considers this app's own commits.
       #
-      # This step both publishes (npm + ClawHub) and creates/pushes the
-      # release tag. It is the success/failure gate for the Docker steps
-      # below: if any release stage fails, this step fails and the image is
-      # not published for this app.
+      # If any release stage (npm, ClawHub, tag) fails, this step fails and
+      # the version-info step below is skipped, so no image is published for
+      # this app.
       - name: Release
         working-directory: apps/${{ matrix.app }}
         run: pnpm run release
@@ -91,48 +87,95 @@ jobs:
           # semantic-release has actually decided to publish a release.
           CLAWHUB_API_KEY: ${{ secrets.CLAWHUB_API_KEY }}
 
-      # ---- Docker image publish (per app) --------------------------------
-      # These run inside this matrix leg, right after a successful release,
-      # so they are automatically per-app: a release that failed (or skipped,
-      # nothing to release) produces no image, and other apps' legs are
-      # unaffected. We deliberately do NOT use a separate `push: tags`
-      # workflow: tags created with the repo's GITHUB_TOKEN do not re-trigger
-      # workflows (GitHub recursion protection), so a tag-triggered job would
-      # never fire.
+      # Announce the released version for the publish-images job by writing a
+      # per-app info file to an artifact. Only runs on success() (the default
+      # after a fully successful `pnpm run release` for THIS app), so a leg
+      # that didn't release produced no file -> no image for it. Each matrix
+      # leg writes a distinct filename, so the artifact contains every app's
+      # info without any merge/order ambiguity.
+      - name: Record released version
+        env:
+          TRIGGER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-info
+          IMAGE="${{ matrix.image }}"
+          if [[ -z "$IMAGE" ]]; then
+            echo "{}" >> "release-info/${{ matrix.app }}.json"
+            exit 0
+          fi
+          PREFIX="${{ matrix.package }}-"
+          # Tag AT the released commit (--points-at dereferences annotated
+          # tags; version-sort so the newest of any same-commit tags wins).
+          TAG=$(git tag --points-at "$TRIGGER_SHA" "${PREFIX}v*" --sort=v:refname | tail -1)
+          VERSION="${TAG#$PREFIX}"
+          # Write plain JSON. Version may be empty (no tag at this commit).
+          printf '{"app":"%s","image":"%s","version":"%s"}\n' \
+            "${{ matrix.app }}" "$IMAGE" "$VERSION" \
+            > "release-info/${{ matrix.app }}.json"
 
-      # Compute the version + image tags. The matrix.* values are
-      # workflow-controlled (safe to inline); the trigger ref and repo owner
-      # come in via env, not shell interpolation, to avoid script injection
-      # from tag names. GHCR requires lowercase image names, so lowercase the
-      # owner path. "latest" is only added for stable (non-prerelease)
-      # versions so a v2.0.0-rc.1 tag never overwrites it.
+      - name: Upload release info
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-info
+          path: release-info/
+          if-no-files-found: ignore
+
+  # Build + push the standalone MCP-server Docker images to GHCR so
+  # deployments (e.g. Komodo) can pull ready-made images. Runs as its own job
+  # with the absolute minimum token scope (packages: write only; no
+  # contents/issues/pull-requests) and only for apps the release job recorded
+  # a version for. Lives in the same workflow run rather than a separate
+  # `push: tags` workflow because tags created with the repo's GITHUB_TOKEN
+  # do not re-trigger workflows (GitHub recursion protection).
+  publish-images:
+    needs: release
+    runs-on: ubuntu-latest
+    strategy:
+      # Each app's image is built/pushed independently.
+      fail-fast: false
+      matrix:
+        app: [paperless-ngx, trilium]
+    permissions:
+      contents: read # to check out the build context
+      packages: write # to push images to GHCR -- and nothing else
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Download release info
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-info
+          path: release-info
+
+      # Read this app's version file (written only if the release leg
+      # succeeded), derive image + tags. The matrix.app and the recorded
+      # version/image (both workflow/dataset-controlled) are read into shell
+      # variables; the repo owner comes in via env. ghcr requires lowercase
+      # image names, so lowercase the owner path. "latest" is only added for
+      # stable (non-prerelease) versions so a v2.0.0-rc.1 tag never
+      # overwrites it.
       - name: Compute image tags
         id: meta
         env:
           OWNER: ${{ github.repository_owner }}
-          TRIGGER_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [[ -z "${{ matrix.image }}" ]]; then
-            echo "No Dockerfile for ${{ matrix.app }}; skipping image publish."
+          INFO="release-info/${{ matrix.app }}.json"
+          if [[ ! -f "$INFO" ]]; then
+            echo "No release recorded for ${{ matrix.app }}; skipping."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          PREFIX="${{ matrix.package }}-"
-          # Tags AT the released commit, not "latest by sort order": sorting
-          # is exactly where prereleases get mis-ranked, and --points-at is
-          # precisely the "did this run release the app" flag we need. It
-          # dereferences annotated tags correctly. Version-sort (ascending,
-          # take last) so if several tags for the same app sit on one commit
-          # the newest wins (avoids lexical v1.10.0 < v1.9.0).
-          TAG=$(git tag --points-at "$TRIGGER_SHA" "${PREFIX}v*" --sort=v:refname | tail -1)
-          if [[ -z "$TAG" ]]; then
-            echo "No release for ${{ matrix.app }} at this commit; skipping."
+          VERSION=$(jq -r '.version // empty' "$INFO")
+          IMG_NAME=$(jq -r '.image // empty' "$INFO")
+          if [[ -z "$VERSION" || -z "$IMG_NAME" ]]; then
+            echo "No version recorded for ${{ matrix.app }}; skipping."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          VERSION="${TAG#$PREFIX}"
-          IMAGE="ghcr.io/${OWNER,,}/${{ matrix.image }}"
+          IMAGE="ghcr.io/${OWNER,,}/${IMG_NAME}"
           TAGS="${IMAGE}:${VERSION},${IMAGE}:${VERSION#v}"
           if [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             TAGS="${TAGS},${IMAGE}:latest"
