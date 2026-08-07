@@ -460,7 +460,12 @@ export function createGetNoteTool(handlePromise: Promise<TriliumClientHandle>): 
                 params: { path: { noteId: params.note_id } },
                 parseAs: "text",
               })
-              .then(unwrap)
+              // unwrap() returns undefined for a successful-but-empty body,
+              // same as "not requested" below (Promise.resolve(undefined))
+              // -- coerce to "" so `rawContent !== undefined` still means
+              // "excerpt_search was requested" rather than conflating the
+              // two.
+              .then((r) => unwrap(r) ?? "")
           : Promise.resolve(undefined),
       ]);
 
@@ -554,7 +559,10 @@ export function createReadNoteContentTool(
             // throws a JSON parse error.
             parseAs: "text",
           })
-          .then(unwrap),
+          // unwrap() returns undefined for a successful-but-empty body --
+          // see client.ts's own comment. Coerced to "" for the
+          // content_status: "empty" case documented above.
+          .then((r) => unwrap(r) ?? ""),
         client
           .GET("/notes/{noteId}", { params: { path: { noteId: params.note_id } } })
           .then(unwrap),
@@ -775,12 +783,16 @@ export function createUpdateNoteTool(handlePromise: Promise<TriliumClientHandle>
               "instead.",
           );
         }
-        const existing = unwrap(
-          await client.GET("/notes/{noteId}/content", {
-            params: { path: { noteId: params.note_id } },
-            parseAs: "text",
-          }),
-        );
+        // unwrap() returns undefined for a successful-but-empty body -- see
+        // client.ts's own comment. Coerced to "" (an empty note is a valid,
+        // if unproductive, edit target).
+        const existing =
+          unwrap(
+            await client.GET("/notes/{noteId}/content", {
+              params: { path: { noteId: params.note_id } },
+              parseAs: "text",
+            }),
+          ) ?? "";
         const result = applyTextEdits(
           existing,
           params.edits.map((e) => ({ oldText: e.old_text, newText: e.new_text })),
@@ -816,12 +828,16 @@ export function createUpdateNoteTool(handlePromise: Promise<TriliumClientHandle>
         }
         let contentToWrite = formatContentForWrite(params.content, effectiveType ?? "text");
         if (params.content_mode === "append") {
-          const existing = unwrap(
-            await client.GET("/notes/{noteId}/content", {
-              params: { path: { noteId: params.note_id } },
-              parseAs: "text",
-            }),
-          );
+          // unwrap() returns undefined for a successful-but-empty body --
+          // see client.ts's own comment. Coerced to "" so appending to an
+          // empty note just writes params.content, not a crash.
+          const existing =
+            unwrap(
+              await client.GET("/notes/{noteId}/content", {
+                params: { path: { noteId: params.note_id } },
+                parseAs: "text",
+              }),
+            ) ?? "";
           // A `text` note's HTML blocks (e.g. adjacent <p> tags) don't need
           // an extra separator; anything else (raw source) does, unless the
           // existing content already ends in one.
