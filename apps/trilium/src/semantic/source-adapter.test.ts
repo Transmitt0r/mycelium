@@ -93,6 +93,25 @@ describe("createTriliumSourceAdapter", () => {
     expect(search).toContain('note.utcDateModified >= "2026-01-01 00:00:00.000Z"');
   });
 
+  it("never sends a search string starting with '(' -- Trilium's ETAPI search silently matches nothing for a leading paren", async () => {
+    const notesRoute: Route = {
+      test: (p, m) => p === "/etapi/notes" && m === "GET",
+      handle: () => ({ results: [] }),
+    };
+    const fetchMock = stubFetch([notesRoute]);
+
+    await collect(adapter().listChanged(undefined));
+    const noCursorRequest = fetchMock.mock.calls[0]?.[0] as Request;
+    const noCursorSearch = new URL(noCursorRequest.url).searchParams.get("search");
+    expect(noCursorSearch?.startsWith("(")).toBe(false);
+
+    fetchMock.mockClear();
+    await collect(adapter().listChanged("2026-01-01 00:00:00.000Z"));
+    const withCursorRequest = fetchMock.mock.calls[0]?.[0] as Request;
+    const withCursorSearch = new URL(withCursorRequest.url).searchParams.get("search");
+    expect(withCursorSearch?.startsWith("(")).toBe(false);
+  });
+
   it("pages by re-querying with an advancing cursor when a page comes back full", async () => {
     const firstPage = Array.from({ length: PAGE_SIZE }, (_, i) =>
       fixture(`note${i}`, `blob${i}`, `2026-01-01 00:00:${String(i).padStart(2, "0")}.000Z`),

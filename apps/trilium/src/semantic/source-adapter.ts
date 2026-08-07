@@ -44,8 +44,11 @@ export function createTriliumSourceAdapter(
       let cursor = since;
 
       while (true) {
+        // Cursor condition goes first, INDEXABLE_TYPES_FILTER parenthesized
+        // and second -- see that constant's own comment: a query starting
+        // with `(` silently matches nothing against Trilium's ETAPI search.
         const search = cursor
-          ? `${INDEXABLE_TYPES_FILTER} AND note.utcDateModified >= "${cursor}"`
+          ? `note.utcDateModified >= "${cursor}" AND (${INDEXABLE_TYPES_FILTER})`
           : INDEXABLE_TYPES_FILTER;
         const result = unwrap(
           await client.GET("/notes", {

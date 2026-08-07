@@ -59,7 +59,16 @@ export const MATCH_ALL_NOTES = 'note.noteId != ""';
 // Scopes a sync pass to the two note types this plugin indexes textual
 // content for -- see sync.ts's own doc comment for why `file`/`image`/
 // `canvas`/etc. are out of scope.
-export const INDEXABLE_TYPES_FILTER = '(note.type = "text" OR note.type = "code")';
+//
+// Deliberately unparenthesized: Trilium's ETAPI search parser silently
+// returns zero results for any query whose *first* token is `(` (verified
+// against a live 0.104.1 instance -- `(note.type = "text")` alone matches
+// nothing, while the identical expression anywhere but the leading
+// position matches correctly). Since this constant is used standalone as
+// the whole query in the no-cursor case, it must not start with `(`.
+// source-adapter.ts wraps it in parens itself when ANDing it with a
+// cursor condition, where it's safely non-leading.
+export const INDEXABLE_TYPES_FILTER = 'note.type = "text" OR note.type = "code"';
 
 // Trilium stores both a LocalDateTime (`dateModified`, in whatever
 // offset was current on the server when it was written) and a UtcDateTime
