@@ -92,15 +92,19 @@ export function createTriliumSourceAdapter(
     },
     async fetchContent(id) {
       const client = await clientPromise;
-      const rawContent = unwrap(
-        await client.GET("/notes/{noteId}/content", {
-          params: { path: { noteId: id } },
-          // openapi-fetch defaults to JSON.parse regardless of the real
-          // (always text/html) Content-Type here -- see src/tools/notes.ts's
-          // identical override.
-          parseAs: "text",
-        }),
-      );
+      // unwrap() returns undefined for a successful-but-empty body (e.g. an
+      // organizer note with no text of its own) -- see client.ts's own
+      // comment. Coerced to "" since this is always a string in practice.
+      const rawContent =
+        unwrap(
+          await client.GET("/notes/{noteId}/content", {
+            params: { path: { noteId: id } },
+            // openapi-fetch defaults to JSON.parse regardless of the real
+            // (always text/html) Content-Type here -- see src/tools/notes.ts's
+            // identical override.
+            parseAs: "text",
+          }),
+        ) ?? "";
       const type = typeCache.get(id) ?? "text";
       typeCache.delete(id);
       // Only `text` notes are CKEditor HTML; `code` notes (also indexed,

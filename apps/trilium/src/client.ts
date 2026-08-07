@@ -68,14 +68,22 @@ export function createTriliumClient(config: TriliumClientConfig): TriliumClient 
  * `response` so that failure still surfaces as a real HTTP error instead of
  * the generic "no data" message.
  *
- * A *successful* 204 (every DELETE, both content PUTs, createRevision) also
- * leaves `data` undefined -- that's ETAPI's normal "done, nothing to say"
- * shape, not a failure, so it must not be conflated with the no-data-on-a-
- * non-2xx-response case above. Every write-only tool (delete/undelete/
- * content-write/create-revision) relies on this to actually surface a
- * failed write instead of silently reporting success -- don't remove the
- * 204 special-case without re-auditing every call site that now depends on
- * unwrap() throwing on a real failure there.
+ * A *successful* response with an empty body also leaves `data` undefined --
+ * openapi-fetch special-cases `Content-Length: 0` the same way it special-
+ * cases 204 (see its own fetch wrapper), returning `data: void 0` for any
+ * ok response with nothing to read, not just a bare 204. That's ETAPI's
+ * normal "done, nothing to say" shape (every DELETE, both content PUTs,
+ * createRevision) *and* legitimately empty content on a GET (e.g. an
+ * organizer note with no body text of its own) -- neither is a failure, so
+ * response.ok generally, not just status === 204, must be treated as
+ * "no data" rather than conflated with the no-data-on-a-non-2xx-response
+ * case below. Every write-only tool (delete/undelete/content-write/
+ * create-revision) relies on this to actually surface a failed write
+ * instead of silently reporting success -- don't remove the response.ok
+ * special-case without re-auditing every call site that now depends on
+ * unwrap() throwing on a real failure there. A GET-content caller that
+ * needs a string, not `T | undefined`, coerces with `?? ""` itself --
+ * unwrap() has no way to know a given T is string-shaped.
  */
 export function unwrap<T>({
   data,
@@ -92,7 +100,7 @@ export function unwrap<T>({
     throw new Error(`trilium ETAPI error${status}: ${detail}`);
   }
   if (data === undefined) {
-    if (response?.status === 204) {
+    if (response?.ok) {
       return undefined as T;
     }
     if (response && !response.ok) {

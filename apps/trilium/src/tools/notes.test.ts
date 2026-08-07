@@ -273,6 +273,38 @@ describe("trilium_update_note", () => {
     expect(putBody).toBe("<p>existing</p><p>more</p>");
   });
 
+  // Regression test: appending to a note with no existing content used to
+  // throw "trilium ETAPI returned no data" -- the GET for `existing` sees a
+  // 200 with an empty body, which openapi-fetch surfaces as data: undefined
+  // the same way it does for a bare 204 (see client.test.ts).
+  it("appends to an empty note without throwing", async () => {
+    let putBody: string | undefined;
+    const handle = setup([
+      {
+        test: (p, m) => p === "/etapi/notes/note1/content" && m === "GET",
+        handle: () => textResponse(""),
+      },
+      {
+        test: (p, m) => p === "/etapi/notes/note1/content" && m === "PUT",
+        handle: async (req) => {
+          putBody = await req.text();
+          return new Response(null, { status: 204 });
+        },
+      },
+      {
+        test: (p, m) => p === "/etapi/notes/note1" && m === "GET",
+        handle: () => jsonResponse(baseNote()),
+      },
+    ]);
+    const tool = createUpdateNoteTool(handle);
+    await tool.execute("call1", {
+      note_id: "note1",
+      content: "first content",
+      content_mode: "append",
+    });
+    expect(putBody).toBe("<p>first content</p>");
+  });
+
   describe("content_mode: edit", () => {
     it("applies a targeted find-and-replace edit to a code note without resending the whole body", async () => {
       let putBody: string | undefined;
@@ -616,6 +648,31 @@ describe("trilium_read_note_content", () => {
       content: string;
     };
     expect(result.content).toBe(rawSource);
+  });
+
+  // Regression test: an empty-content note is a 200 with an empty body,
+  // which openapi-fetch surfaces as data: undefined the same way it does
+  // for a bare 204 (see client.test.ts). Before coercing that to "" at this
+  // call site, reading an empty note's content threw "trilium ETAPI
+  // returned no data" instead of reporting content_status: "empty".
+  it("reports content_status: 'empty' for a note with no content, instead of throwing", async () => {
+    const handle = setup([
+      {
+        test: (p, m) => p === "/etapi/notes/note1/content" && m === "GET",
+        handle: () => textResponse(""),
+      },
+      {
+        test: (p, m) => p === "/etapi/notes/note1" && m === "GET",
+        handle: () => jsonResponse(baseNote()),
+      },
+    ]);
+    const tool = createReadNoteContentTool(handle);
+    const result = (await tool.execute("call1", { note_id: "note1" })).details as {
+      content: string;
+      content_status: string;
+    };
+    expect(result.content).toBe("");
+    expect(result.content_status).toBe("empty");
   });
 });
 

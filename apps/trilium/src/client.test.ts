@@ -26,6 +26,23 @@ describe("unwrap", () => {
     const response = new Response(null, { status: 401, statusText: "Unauthorized" });
     expect(() => unwrap({ response })).toThrow(/401/);
   });
+
+  // Regression test for a real bug found testing semantic search against a
+  // live Trilium instance: openapi-fetch returns `data: undefined` for any
+  // *successful* response with an empty body, not just a bare 204 (it
+  // special-cases `Content-Length: 0` the same way). An empty-content note
+  // (a container/organizer note with no text of its own -- entirely
+  // ordinary, not an error) is a 200 with an empty body, so unwrap() used to
+  // throw "no data" for it, breaking semantic sync (every such note failed
+  // to index) and read_note_content/trilium_update_note (both crashed
+  // instead of returning/editing empty content).
+  it("returns undefined, not a thrown error, for a successful response with an empty body that isn't a bare 204", () => {
+    const response = new Response("", {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+    expect(unwrap({ response })).toBeUndefined();
+  });
 });
 
 describe("createTriliumClient", () => {

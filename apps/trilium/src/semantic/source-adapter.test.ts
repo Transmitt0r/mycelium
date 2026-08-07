@@ -170,6 +170,23 @@ describe("createTriliumSourceAdapter", () => {
     expect(content).toBe("hello");
   });
 
+  it('fetchContent returns "" for an empty-content note instead of throwing', async () => {
+    const notesRoute: Route = {
+      test: (p, m) => p === "/etapi/notes" && m === "GET",
+      handle: () => ({ results: [fixture("note1", "blobA", "2026-01-01 00:00:00.000Z", "text")] }),
+    };
+    const contentRoute: Route = {
+      test: (p, m) => p === "/etapi/notes/note1/content" && m === "GET",
+      handle: () => textResponse(""),
+    };
+    stubFetch([notesRoute, contentRoute]);
+    const sourceAdapter = adapter();
+    await collect(sourceAdapter.listChanged(undefined));
+
+    const content = await sourceAdapter.fetchContent("note1");
+    expect(content).toBe("");
+  });
+
   it("fetchContent leaves a code note's content untouched (no markdown conversion)", async () => {
     const notesRoute: Route = {
       test: (p, m) => p === "/etapi/notes" && m === "GET",
